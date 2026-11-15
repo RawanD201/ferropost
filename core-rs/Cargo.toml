@@ -14,6 +14,7 @@ ferropost-common = { path = "crates/common" }
 ferropost-domain = { path = "crates/domain" }
 ferropost-store = { path = "crates/store" }
 ferropost-api = { path = "crates/api" }
+ferropost-jobs = { path = "crates/jobs" }
 
 anyhow = "1"
 thiserror = "2"

@@ -16,6 +16,8 @@ import (
 	"billionmail-core/internal/service/video_gen"
 	"billionmail-core/internal/service/warmup"
 	"context"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gogf/gf/os/gtimer"
@@ -58,16 +60,19 @@ func Start(ctx context.Context) (err error) {
 		domains.FreshRecords(ctx)
 	})
 
-	// Start maillog analysis
-	gtimer.AddOnce(time.Second, func() {
-		me := maillog_stat.NewMallogEventHandler("", 1*time.Second)
-		me.Start()
-	})
+	// Start maillog analysis and aggregation, unless the Rust core runs them.
+	if !OwnedByRust("maillog") {
+		gtimer.AddOnce(time.Second, func() {
+			me := maillog_stat.NewMallogEventHandler("", 1*time.Second)
+			me.Start()
+		})
 
-	// Start maillog aggregation
-	gtimer.AddOnce(time.Second, func() {
-		maillog_stat.AggregateMaillogsTask(1 * time.Minute)
-	})
+		gtimer.AddOnce(time.Second, func() {
+			maillog_stat.AggregateMaillogsTask(1 * time.Minute)
+		})
+	} else {
+		g.Log().Info(ctx, "maillog analysis is run by the Rust core")
+	}
 
 	// Start console panel baseurl update timer
 	gtimer.AddOnce(100*time.Millisecond, func() {
@@ -205,4 +210,16 @@ func Start(ctx context.Context) (err error) {
 
 	g.Log().Debug(ctx, "All timers started successfully")
 	return nil
+}
+
+// OwnedByRust reports whether a background job has moved to the Rust core.
+// FERROPOST_RUST_JOBS lists such jobs (comma-separated); the Rust process
+// reads the same variable and runs exactly those, so no job runs twice.
+func OwnedByRust(job string) bool {
+	for _, name := range strings.Split(os.Getenv("FERROPOST_RUST_JOBS"), ",") {
+		if strings.TrimSpace(name) == job {
+			return true
+		}
+	}
+	return false
 }

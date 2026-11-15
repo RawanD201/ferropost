@@ -37,6 +37,17 @@ pub struct Config {
     pub server_ip: Option<IpAddr>,
     pub jwt_secret: String,
     pub access_log_dir: PathBuf,
+    /// Background jobs this process runs (`FERROPOST_RUST_JOBS`). Go reads
+    /// the same list and skips them.
+    pub rust_jobs: Vec<String>,
+    pub maillog_path: PathBuf,
+    pub postfix_main_cf: PathBuf,
+}
+
+impl Config {
+    pub fn runs_job(&self, job: &str) -> bool {
+        self.rust_jobs.iter().any(|j| j == job)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +153,17 @@ impl Config {
                 .transpose()
                 .context("invalid FERROPOST_SERVER_IP")?,
             jwt_secret,
+            rust_jobs: var("FERROPOST_RUST_JOBS")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|j| !j.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            maillog_path: var("FERROPOST_MAILLOG_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("../logs/postfix/mail.log")),
+            postfix_main_cf: root.join("../conf/postfix/main.cf"),
             access_log_dir: var("FERROPOST_ACCESS_LOG_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("logs")),
@@ -218,6 +240,8 @@ mod tests {
         assert_eq!(cfg.https_port, 443);
         assert_eq!(cfg.redis.db, 1);
         assert!(cfg.trusted_proxies.is_empty());
+        assert!(cfg.rust_jobs.is_empty(), "no jobs unless asked");
+        assert!(cfg.maillog_path.ends_with("logs/postfix/mail.log"));
     }
 
     #[test]
@@ -232,6 +256,7 @@ mod tests {
             ("FERROPOST_JWT_SECRET", "override"),
             ("FERROPOST_HTTP_PORT", "8080"),
             ("FERROPOST_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.1.1"),
+            ("FERROPOST_RUST_JOBS", "maillog, other"),
         ]);
         let cfg = Config::from_sources(
             PathBuf::from("/x"),
@@ -243,6 +268,7 @@ mod tests {
         assert_eq!(cfg.http_port, 8080);
         assert_eq!(cfg.https_port, 8443);
         assert_eq!(cfg.trusted_proxies.len(), 2);
+        assert!(cfg.runs_job("maillog") && cfg.runs_job("other") && !cfg.runs_job("x"));
     }
 
     #[test]

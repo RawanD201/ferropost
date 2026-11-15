@@ -637,6 +637,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferropost-jobs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ferropost-common",
+ "ferropost-domain",
+ "ferropost-store",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ferropost-server"
 version = "0.1.0"
 dependencies = [
@@ -645,6 +660,7 @@ dependencies = [
  "ferropost-api",
  "ferropost-common",
  "ferropost-domain",
+ "ferropost-jobs",
  "ferropost-store",
  "hyper",
  "hyper-util",
@@ -669,6 +685,7 @@ dependencies = [
  "ferropost-common",
  "ferropost-domain",
  "fred",
+ "serde",
  "serde_json",
  "sqlx",
  "tokio",

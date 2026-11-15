@@ -7,6 +7,7 @@ pub mod audit;
 pub mod contacts;
 pub mod groups;
 pub mod mail;
+pub mod maillog;
 pub mod paging;
 pub mod rbac;
 pub mod tags;

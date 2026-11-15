@@ -31,6 +31,7 @@ core-rs/                # Rust core replacing core/ domain by domain (see core-r
 ├── crates/common/      # Config, shared .env reader, i18n
 ├── crates/store/       # Postgres (sqlx) + Redis (fred) queries on the Go schema
 ├── crates/api/         # axum: edge policies, auth/RBAC, native routes, proxy to Go
+├── crates/jobs/        # Background jobs moved from Go (FERROPOST_RUST_JOBS)
 └── crates/server/      # ferropost binary: listeners, TLS/SNI
 conf/                   # Mail service configs (postfix, dovecot, rspamd, redis)
 Dockerfiles/            # Container definitions
@@ -92,6 +93,7 @@ cd core && go test -count=1 -short ./internal/service/... && cd frontend && pnpm
 - When adding new controllers, add the module name to the RBAC `modules` list in `core/internal/service/middlewares/rbac.go` (and `MODULES` in `core-rs/crates/domain/src/rbac.rs`).
 - Rust mail infrastructure: resolve hostnames with `ferropost_store::domains::mail_hostname` (DB `a_record`, then `ferropost_domain::mail::mx_hostname_fallback`), never the bare domain.
 - When porting a route to Rust, register every HTTP method Go serves on that path, keep the `{success, code, msg, data}` envelope (errors on HTTP 200), and move the domain's timers out of Go in the same change.
+- Moving a Go timer to Rust: guard it in Go with `timers.OwnedByRust("<job>")`, start it in `ferropost-jobs` behind `config.runs_job("<job>")`, and add the name to `FERROPOST_RUST_JOBS` for both programs in `Dockerfiles/core/supervisord.conf`.
 
 ## Commands
 

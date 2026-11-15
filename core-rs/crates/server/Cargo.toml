@@ -17,6 +17,7 @@ axum.workspace = true
 ferropost-api.workspace = true
 ferropost-common.workspace = true
 ferropost-domain.workspace = true
+ferropost-jobs.workspace = true
 ferropost-store.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true

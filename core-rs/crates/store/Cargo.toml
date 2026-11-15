@@ -12,6 +12,7 @@ anyhow.workspace = true
 ferropost-common.workspace = true
 ferropost-domain = { workspace = true, features = ["sqlx"] }
 fred.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

@@ -67,7 +67,7 @@ async fn run() -> Result<()> {
         config.ssl_dir.clone(),
         store.pg.clone(),
     )?);
-    let app = ferropost_api::app(AppState::new(config.clone(), store)?);
+    let app = ferropost_api::app(AppState::new(config.clone(), store.clone())?);
 
     let http = listener::bind(config.http_port).await?;
     let https = listener::bind(config.https_port).await?;
@@ -75,6 +75,7 @@ async fn run() -> Result<()> {
 
     let graceful = Arc::new(GracefulShutdown::new());
     let (stop_tx, stop_rx) = watch::channel(false);
+    let jobs = ferropost_jobs::spawn(&config, &store, stop_rx.clone());
     let watcher = {
         let graceful = graceful.clone();
         move || graceful.watcher()
@@ -92,6 +93,9 @@ async fn run() -> Result<()> {
     tracing::info!("shutting down");
     let _ = stop_tx.send(true);
     let _ = tokio::join!(http_task, https_task);
+    for job in jobs {
+        let _ = tokio::time::timeout(SHUTDOWN_GRACE, job).await;
+    }
 
     let graceful = Arc::try_unwrap(graceful).unwrap_or_else(|_| GracefulShutdown::new());
     if tokio::time::timeout(SHUTDOWN_GRACE, graceful.shutdown())

@@ -28,7 +28,19 @@ in Rust.
 | `crates/common` | `Config`, the shared `.env` reader, i18n (Go language packs). |
 | `crates/store` | Postgres (sqlx) and Redis (fred) queries against the Go schema. |
 | `crates/api` | axum app: edge, JWT auth, RBAC, response envelope, Go proxy, native routes. |
+| `crates/jobs` | Background jobs moved out of Go (mail-log ingestion, aggregation). |
 | `crates/server` | `ferropost` binary: listeners, TLS/SNI certificates, graceful shutdown. |
+
+## Background jobs
+
+A job moves to Rust by name in `FERROPOST_RUST_JOBS` (comma-separated).
+Both processes read it: Go skips the listed jobs (`timers.OwnedByRust`) and
+Rust runs exactly those, so a job never runs twice. Unset means Go keeps
+everything. supervisord sets it for both programs.
+
+| Job | Replaces | Notes |
+|---|---|---|
+| `maillog` | `MallogEventHandler`, `AggregateMaillogsTask` | Follows `logs/postfix/mail.log` with a file cursor stored in the same transaction as the rows (exactly once; finishes `mail.log.1` after rotation; starts where Go's watermark stopped). Copies local deliveries every minute with a one-hour overlap. |
 
 ## Ported so far
 
@@ -62,6 +74,8 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_SERVER_IP` | looked up online | Public IP always allowed by the whitelist |
 | `FERROPOST_JWT_SECRET` | `DBPASS`+`REDISPASS` | Must match Go's `jwt.secret` if that is set |
 | `FERROPOST_ACCESS_LOG_DIR` | `$FERROPOST_ROOT/logs` | fail2ban access log directory |
+| `FERROPOST_RUST_JOBS` | none | Background jobs owned by Rust (see below); read by Go too |
+| `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
 | `RUST_LOG` | `info` | Log filter |
 
 The Go core enters internal mode when `FERROPOST_GO_INTERNAL_ADDR` is set. It then
@@ -80,7 +94,7 @@ docker run -d --rm --name bmrs-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_USE
   -e POSTGRES_DB=billionmail -p 127.0.0.1:55432:5432 postgres:17-alpine
 docker run -d --rm --name bmrs-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine --requirepass test
 FERROPOST_TEST_DATABASE_URL=postgres://billionmail:test@127.0.0.1:55432/billionmail \
-FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test -p ferropost-api --tests
+FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test --tests
 ```
 
 ## Build and deploy
@@ -165,6 +179,13 @@ These are security fixes that keep the frontend working unchanged:
   sorts merged exports by address (Go's order was random).
 - **Subscriber trend** walks calendar months, so a window starting on the
   29th–31st no longer drops February.
+- **Mail-log ingestion** is exactly-once: Go re-read the last second on every
+  pass and stored deferrals again, missed lines still in `mail.log.1` after
+  rotation, and guessed the year of syslog timestamps from the file's
+  modification time (wrong across New Year).
+- **Local-delivery aggregation** re-scans an hour of overlap, so a delivery
+  logged after its sender line is no longer skipped, and matches domains
+  exactly instead of with `LIKE`.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -173,7 +194,7 @@ These are security fixes that keep the frontend working unchanged:
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done; `contact/group/info` moves to step 4)
-3. `maillog_stat` and `overview`: streaming Postfix log parser, the `/pmta/` tracker, dashboard stats
+3. `maillog_stat` and `overview`: Postfix log ingestion (done), the `/pmta/` tracker, dashboard stats
 4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations
