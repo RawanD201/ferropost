@@ -281,3 +281,74 @@ mod tests {
         assert_eq!(last, [c("b@x.com", 1), c("a@x.com", 0)]);
     }
 }
+
+/// A group a contact belongs to (`{id, name}`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GroupRef {
+    pub id: i32,
+    pub name: String,
+}
+
+/// A tag on a contact.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ContactTag {
+    pub id: i32,
+    pub name: String,
+    pub create_time: i32,
+}
+
+/// A contact as the console lists it (Go's `v1.Contact`). `groups` and
+/// `tags` are always arrays (Go sent `null` for whichever it did not fill).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+pub struct Contact {
+    pub id: i32,
+    pub email: String,
+    pub group_id: i32,
+    pub active: i32,
+    pub task_id: i32,
+    pub create_time: i32,
+    #[cfg_attr(feature = "sqlx", sqlx(skip))]
+    pub groups: Vec<GroupRef>,
+    pub status: i32,
+    pub group_name: String,
+    #[cfg_attr(feature = "sqlx", sqlx(json))]
+    pub attribs: serde_json::Value,
+    pub last_active_at: i32,
+    #[cfg_attr(feature = "sqlx", sqlx(skip))]
+    pub tags: Vec<ContactTag>,
+}
+
+/// Start of a "last active" window offered by the console (`days` is 7,
+/// 30, 90, 180 or 365), as Unix time. Months are calendar months, clamped
+/// at month end (Go rolled over: Mar 31 − 1 month gave Mar 3).
+pub fn active_window_start(now: i64, days: i64) -> Option<i64> {
+    use chrono::{DateTime, Months, TimeDelta};
+    let now = DateTime::from_timestamp(now, 0)?;
+    let start = match days {
+        7 => now.checked_sub_signed(TimeDelta::days(7)),
+        30 => now.checked_sub_months(Months::new(1)),
+        90 => now.checked_sub_months(Months::new(3)),
+        180 => now.checked_sub_months(Months::new(6)),
+        365 => now.checked_sub_months(Months::new(12)),
+        _ => None,
+    }?;
+    Some(start.timestamp())
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::active_window_start;
+
+    #[test]
+    fn windows_follow_calendar_months() {
+        // 2026-03-31T12:00:00Z
+        let now = 1_774_958_400;
+        assert_eq!(active_window_start(now, 7), Some(now - 7 * 86_400));
+        // 2026-02-28T12:00:00Z (clamped)
+        assert_eq!(active_window_start(now, 30), Some(1_772_280_000));
+        // 2025-03-31T12:00:00Z
+        assert_eq!(active_window_start(now, 365), Some(1_743_422_400));
+        assert_eq!(active_window_start(now, 14), None);
+    }
+}

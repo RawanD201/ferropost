@@ -11,6 +11,7 @@ publish.workspace = true
 sqlx = ["dep:sqlx"]
 
 [dependencies]
+chrono.workspace = true
 csv.workspace = true
 regex.workspace = true
 serde.workspace = true

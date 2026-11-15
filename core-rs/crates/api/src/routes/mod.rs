@@ -4,6 +4,7 @@
 //! the same paths and methods Go uses, and verify the JSON matches.
 
 mod contact_groups;
+mod contacts;
 mod email_template;
 mod operation_log;
 mod tags;
@@ -29,6 +30,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(operation_log::routes())
         .merge(email_template::routes())
         .merge(contact_groups::routes())
+        .merge(contacts::routes())
         // Pasted address lists can be large; Go allowed up to 800 MB.
         .route_layer(DefaultBodyLimit::max(BODY_LIMIT))
         .route_layer(from_fn_with_state(state.clone(), rbac::require_permission))
