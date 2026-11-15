@@ -40,6 +40,8 @@ pub struct Caches {
     pub whitelist: Cache<(), Arc<Vec<IpNet>>>,
     pub default_language: Cache<(), Option<String>>,
     pub server_ip: Cache<(), Option<IpAddr>>,
+    /// Postfix deferred-queue size (Go cached it for 120 seconds too).
+    pub deferred_queue: Cache<(), i64>,
 }
 
 impl Caches {
@@ -50,6 +52,7 @@ impl Caches {
             whitelist: ttl_cache(Duration::from_secs(10), 1),
             default_language: ttl_cache(Duration::from_secs(30), 1),
             server_ip: ttl_cache(Duration::from_secs(3600), 1),
+            deferred_queue: ttl_cache(Duration::from_secs(120), 1),
         }
     }
 }

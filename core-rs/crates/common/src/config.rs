@@ -42,6 +42,11 @@ pub struct Config {
     pub rust_jobs: Vec<String>,
     pub maillog_path: PathBuf,
     pub postfix_main_cf: PathBuf,
+    /// Time zone of dashboard charts (`TZ`, as docker-compose sets it).
+    pub timezone: String,
+    /// Container whose `postqueue` reports the deferred queue; `none`
+    /// disables the lookup.
+    pub postfix_container: String,
 }
 
 impl Config {
@@ -164,6 +169,9 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("../logs/postfix/mail.log")),
             postfix_main_cf: root.join("../conf/postfix/main.cf"),
+            timezone: var("TZ").unwrap_or_else(|| "UTC".to_owned()),
+            postfix_container: var("FERROPOST_POSTFIX_CONTAINER")
+                .unwrap_or_else(|| "postfix-billionmail".to_owned()),
             access_log_dir: var("FERROPOST_ACCESS_LOG_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("logs")),

@@ -103,6 +103,8 @@ pub fn config(
         ("FERROPOST_REDIS_URL", redis.to_owned()),
         ("FERROPOST_GO_UPSTREAM", upstream.to_owned()),
         ("FERROPOST_SERVER_IP", "198.51.100.1".to_owned()),
+        // Never reach the Docker daemon of the machine running the tests.
+        ("FERROPOST_POSTFIX_CONTAINER", "none".to_owned()),
     ]);
     Config::from_sources(root.to_path_buf(), Arc::new(EnvFile::from_map(env)), |k| {
         vars.get(k).cloned()
@@ -153,7 +155,8 @@ pub async fn reset_schema(store: &Store) {
         "DROP TABLE IF EXISTS role_permission, account_role, permission, role, account,
              bm_contact_tags, bm_contacts, bm_tags, bm_contact_groups, bm_options,
              bm_console_ip_whitelist, bm_operation_logs, email_templates, email_tasks,
-             mailstat_message_ids, mailstat_opened, mailstat_clicked CASCADE",
+             mailstat_message_ids, mailstat_opened, mailstat_clicked, mailstat_send_mails,
+             mailstat_senders, mailstat_deferred_mails, recipient_info CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -226,6 +229,25 @@ pub async fn reset_schema(store: &Store) {
             log_time_millis BIGINT NOT NULL DEFAULT 0,
             log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
             message_id TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE recipient_info (id SERIAL PRIMARY KEY, task_id INTEGER NOT NULL,
+            recipient VARCHAR(320) NOT NULL, message_id TEXT NOT NULL)",
+        "CREATE TABLE mailstat_send_mails (postfix_message_id TEXT PRIMARY KEY,
+            log_time_millis BIGINT NOT NULL DEFAULT 0,
+            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
+            status TEXT NOT NULL DEFAULT '', recipient TEXT NOT NULL DEFAULT '',
+            mail_provider TEXT NOT NULL DEFAULT '', delay REAL NOT NULL DEFAULT 0,
+            delays TEXT NOT NULL DEFAULT '', dsn TEXT NOT NULL DEFAULT '',
+            relay TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE mailstat_senders (postfix_message_id TEXT PRIMARY KEY,
+            log_time_millis BIGINT NOT NULL DEFAULT 0,
+            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
+            size INTEGER NOT NULL DEFAULT 0, sender TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE mailstat_deferred_mails (id SERIAL PRIMARY KEY,
+            postfix_message_id TEXT NOT NULL DEFAULT '', log_time_millis BIGINT NOT NULL DEFAULT 0,
+            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
+            delay REAL NOT NULL DEFAULT 0, delays TEXT NOT NULL DEFAULT '',
+            dsn TEXT NOT NULL DEFAULT '', relay TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '')",
         "CREATE TABLE mailstat_opened (id SERIAL PRIMARY KEY, campaign_id INTEGER NOT NULL DEFAULT 0,
             log_time_millis BIGINT NOT NULL DEFAULT 0,
             log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,

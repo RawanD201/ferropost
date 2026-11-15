@@ -10,9 +10,11 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+bollard.workspace = true
 ferropost-common.workspace = true
 ferropost-domain.workspace = true
 ferropost-store.workspace = true
+futures-util.workspace = true
 chrono.workspace = true
 csv.workspace = true
 hex.workspace = true

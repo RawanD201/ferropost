@@ -7,6 +7,7 @@ mod contact_groups;
 mod contacts;
 mod email_template;
 mod operation_log;
+mod overview;
 mod tags;
 mod tracking;
 
@@ -32,6 +33,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(email_template::routes())
         .merge(contact_groups::routes())
         .merge(contacts::routes())
+        .merge(overview::routes())
         // Pasted address lists can be large; Go allowed up to 800 MB.
         .route_layer(DefaultBodyLimit::max(BODY_LIMIT))
         .route_layer(from_fn_with_state(state.clone(), rbac::require_permission))

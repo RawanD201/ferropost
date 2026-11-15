@@ -16,6 +16,7 @@ pub mod edge;
 pub mod envelope;
 pub mod export;
 pub mod lang;
+pub mod postfix_queue;
 pub mod proxy;
 pub mod rbac;
 pub mod routes;

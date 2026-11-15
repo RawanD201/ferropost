@@ -50,6 +50,7 @@ everything. supervisord sets it for both programs.
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/pmta/<token>` (open pixel, click redirect) | Accepts Go's existing links. Counts an event and redirects only for mail this server sent, and only to `http`/`https`; stores the clicked URL; activity updates are immediate. |
+| `/api/overview`, `/api/overview/failed` | Three queries instead of one per tile and chart; buckets generated in the server time zone (`TZ`) with calendar months; campaign filter counts each message once. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
@@ -76,6 +77,8 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_JWT_SECRET` | `DBPASS`+`REDISPASS` | Must match Go's `jwt.secret` if that is set |
 | `FERROPOST_ACCESS_LOG_DIR` | `$FERROPOST_ROOT/logs` | fail2ban access log directory |
 | `FERROPOST_RUST_JOBS` | none | Background jobs owned by Rust (see below); read by Go too |
+| `TZ` | `UTC` | Time zone of dashboard chart buckets |
+| `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
 | `RUST_LOG` | `info` | Log filter |
 
@@ -190,6 +193,11 @@ These are security fixes that keep the frontend working unchanged:
   links still work, but a click only counts and redirects when its message
   ID was logged by this server, and only to `http`/`https` URLs. Signed
   links replace the format when sending moves to Rust (step 4).
+- **Dashboard charts** use one time zone for labels and gap filling (Go
+  mixed the database's and the server's), step months by calendar month (Go
+  stepped 30 days, skipping or repeating months), and are always in order
+  (two Go charts were unsorted). A campaign filter no longer counts a
+  message twice when it has two recipient rows.
 - **Local-delivery aggregation** re-scans an hour of overlap, so a delivery
   logged after its sender line is no longer skipped, and matches domains
   exactly instead of with `LIKE`.
@@ -201,7 +209,7 @@ These are security fixes that keep the frontend working unchanged:
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done; `contact/group/info` moves to step 4)
-3. `maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker (done), dashboard stats
+3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue, with HMAC-signed tracking links
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations

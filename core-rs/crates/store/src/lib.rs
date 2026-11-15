@@ -10,6 +10,7 @@ pub mod domains;
 pub mod groups;
 pub mod maillog;
 pub mod options;
+pub mod overview;
 pub mod rbac;
 pub mod tags;
 pub mod templates;
