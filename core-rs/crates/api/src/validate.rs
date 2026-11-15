@@ -60,6 +60,47 @@ pub fn one_of(field: &str, value: Option<i64>, allowed: &[i64]) -> Result<i64, A
     Ok(value)
 }
 
+/// `in:a,b,...` for an optional value; absent means `default`.
+pub fn optional_one_of(
+    field: &str,
+    value: Option<i64>,
+    allowed: &[i64],
+    default: i64,
+) -> Result<i64, ApiError> {
+    match value {
+        None => Ok(default),
+        Some(v) => one_of(field, Some(v), allowed),
+    }
+}
+
+/// `required|in:A,B,...` for a string.
+pub fn str_one_of<'a>(
+    field: &str,
+    value: &'a Option<String>,
+    allowed: &[&str],
+) -> Result<&'a str, ApiError> {
+    let value = required(field, value)?;
+    if !allowed.contains(&value) {
+        return Err(fail(format!(
+            "The {field} value `{value}` is not in acceptable range: {}",
+            allowed.join(",")
+        )));
+    }
+    Ok(value)
+}
+
+/// `in:A,B,...` for an optional string; empty counts as absent.
+pub fn optional_str_in(
+    field: &str,
+    value: &Option<String>,
+    allowed: &[&str],
+) -> Result<(), ApiError> {
+    match value.as_deref().map(str::trim) {
+        None | Some("") => Ok(()),
+        Some(_) => str_one_of(field, value, allowed).map(|_| ()),
+    }
+}
+
 /// `required|min-length:1` for a list of row IDs. Duplicates are removed.
 pub fn id_list(field: &str, values: &[i64]) -> Result<Vec<i32>, ApiError> {
     if values.is_empty() {
@@ -110,6 +151,23 @@ mod tests {
             msg(one_of("mark_include", Some(2), &[0, 1]).expect_err("must fail")),
             "The mark_include value `2` is not in acceptable range: 0,1"
         );
+    }
+
+    #[test]
+    fn enums() {
+        assert_eq!(optional_one_of("x", None, &[0, 1], 0).expect("ok"), 0);
+        assert!(optional_one_of("x", Some(3), &[0, 1], 0).is_err());
+        assert_eq!(
+            str_one_of("tag_logic", &Some("OR".into()), &["AND", "OR", "NOT"]).expect("ok"),
+            "OR"
+        );
+        assert_eq!(
+            msg(str_one_of("tag_logic", &Some("XOR".into()), &["AND", "OR"])
+                .expect_err("must fail")),
+            "The tag_logic value `XOR` is not in acceptable range: AND,OR"
+        );
+        assert!(optional_str_in("file_type", &Some(String::new()), &["csv"]).is_ok());
+        assert!(optional_str_in("file_type", &Some("pdf".into()), &["csv"]).is_err());
     }
 
     #[test]

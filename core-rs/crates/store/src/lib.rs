@@ -5,6 +5,7 @@
 //! database during the migration.
 
 pub mod audit;
+pub mod contacts;
 pub mod domains;
 pub mod groups;
 pub mod options;

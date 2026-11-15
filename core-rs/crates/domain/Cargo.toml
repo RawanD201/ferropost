@@ -11,12 +11,11 @@ publish.workspace = true
 sqlx = ["dep:sqlx"]
 
 [dependencies]
+csv.workspace = true
 regex.workspace = true
 serde.workspace = true
-sqlx = { workspace = true, optional = true }
-
-[dev-dependencies]
 serde_json.workspace = true
+sqlx = { workspace = true, optional = true }
 
 [lints]
 workspace = true

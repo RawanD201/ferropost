@@ -34,6 +34,7 @@ in Rust.
 
 | Route | Notes |
 |---|---|
+| `/api/contact/group/*` (10 of 12 routes) | Create, import, update, delete, list, all, merge and counts. Create-and-import is one transaction; imports are one statement each and skip or overwrite duplicates; list counts subscribers in one query. `export` and `info` are still Go. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
@@ -141,6 +142,16 @@ These are security fixes that keep the frontend working unchanged:
   as unclosed tags, so "HTML tags are not standard" only flags real problems.
   Go flagged almost every email.
 - **Empty lists** are `[]` rather than `null`.
+- **Contact import:** every address is checked (Go skipped plain-text
+  lines), `user+tag@` addresses are accepted, duplicates are skipped instead
+  of failing the whole file, and a failed import leaves no empty group.
+- **Group updates:** flags left out of the request keep their value (Go reset
+  `double_optin` and `send_welcome_email` to 0); a missing group is a 404.
+- **Merging groups** keeps each contact's confirmed status and newest
+  attributes (Go dropped both, so merged contacts dropped out of tag sends).
+- **Deleting a group** also removes its tags and their assignments.
+- **Subscribe tokens** come from `gen_random_uuid()` instead of a time-seeded
+  MD5.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -148,7 +159,7 @@ These are security fixes that keep the frontend working unchanged:
 ## Roadmap
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
-2. Simple domains: tags, operation_log, email_template (done), contact
+2. Simple domains: tags, operation_log, email_template, contact groups and import (done); contacts, export
 3. `maillog_stat` and `overview`: streaming Postfix log parser, the `/pmta/` tracker, dashboard stats
 4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy

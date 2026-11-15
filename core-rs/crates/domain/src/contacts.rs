@@ -1,10 +1,15 @@
-//! Contact rules.
+//! Contact rules: address checks and parsing of imported lists.
+
+use std::collections::{BTreeMap, HashSet};
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 /// Parses a pasted list of addresses (Go's `parseEmailList`): split on new
 /// lines, commas and semicolons, trim, lowercase, keep entries containing
 /// `@` and `.`, and drop duplicates while keeping the first-seen order.
 pub fn parse_email_list(data: &str) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     data.split(['\n', '\r', ',', ';'])
         .map(|line| line.trim().to_lowercase())
         .filter(|email| !email.is_empty() && email.contains('@') && email.contains('.'))
@@ -12,17 +17,267 @@ pub fn parse_email_list(data: &str) -> Vec<String> {
         .collect()
 }
 
+static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[a-zA-Z0-9_\-.+]+@[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)+$").expect("static pattern")
+});
+
+/// GoFrame's `email` rule, plus `+` in the local part (Go rejected
+/// `user+tag@example.com`).
+pub fn is_valid_email(email: &str) -> bool {
+    email.len() <= 320 && EMAIL.is_match(email)
+}
+
+/// A contact read from an import.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedContact {
+    pub email: String,
+    /// 1 subscribed, 0 unsubscribed.
+    pub active: i32,
+    pub attribs: BTreeMap<String, String>,
+}
+
+/// How the import text was provided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportSource {
+    /// File contents: CSV with headers is detected automatically.
+    File,
+    /// Pasted text: always `email[,{json attributes}]` per line.
+    Paste,
+}
+
+/// Parses an import (Go's `parseEmailContent`). Invalid addresses are
+/// skipped; Go only checked them for CSV input.
+pub fn parse_contacts(content: &str, source: ImportSource) -> Vec<ImportedContact> {
+    let content = content.trim();
+    let first_line = content.lines().next().unwrap_or_default();
+    let contacts = if source == ImportSource::File && is_csv_header(first_line) {
+        parse_csv(content)
+    } else {
+        parse_lines(content)
+    };
+    contacts
+        .into_iter()
+        .filter(|c| is_valid_email(&c.email))
+        .collect()
+}
+
+/// Go's `isCSVFormat`: a header mentioning "email", or several columns
+/// whose first is not an address.
+fn is_csv_header(line: &str) -> bool {
+    if line.to_lowercase().contains("email") {
+        return true;
+    }
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(line.as_bytes());
+    match reader.records().next() {
+        Some(Ok(record)) => record.len() > 1 && !record.get(0).unwrap_or_default().contains('@'),
+        _ => false,
+    }
+}
+
+fn parse_csv(content: &str) -> Vec<ImportedContact> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .flexible(true)
+        .trim(csv::Trim::All)
+        .from_reader(content.as_bytes());
+    let Ok(headers) = reader.headers().cloned() else {
+        return Vec::new();
+    };
+    let column = |name: &str| {
+        headers
+            .iter()
+            .position(|h| h.trim().eq_ignore_ascii_case(name))
+    };
+    let Some(email_col) = column("email") else {
+        return Vec::new();
+    };
+    let active_col = column("active");
+    let attribs_col = column("attributes");
+
+    reader
+        .records()
+        .filter_map(Result::ok)
+        .filter_map(|record| {
+            // Go indexed the row without a bounds check and crashed on
+            // short rows.
+            let email = record.get(email_col)?.trim().to_owned();
+            if email.is_empty() {
+                return None;
+            }
+            let active = match active_col.and_then(|i| record.get(i)).map(str::trim) {
+                Some("0") => 0,
+                _ => 1,
+            };
+            let attribs = attribs_col
+                .and_then(|i| record.get(i))
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .and_then(parse_attributes)
+                .unwrap_or_default();
+            Some(ImportedContact {
+                email,
+                active,
+                attribs,
+            })
+        })
+        .collect()
+}
+
+fn parse_lines(content: &str) -> Vec<ImportedContact> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            let (email, rest) = match line.split_once(',') {
+                Some((email, rest)) => (email.trim(), Some(rest.trim())),
+                None => (line, None),
+            };
+            if email.is_empty() {
+                return None;
+            }
+            let attribs = rest
+                .filter(|s| !s.is_empty() && *s != "null")
+                .and_then(parse_attributes)
+                .unwrap_or_default();
+            Some(ImportedContact {
+                email: email.to_owned(),
+                active: 1,
+                attribs,
+            })
+        })
+        .collect()
+}
+
+/// Go's `parseJSONAttributes`: undoes CSV quote doubling, then flattens a
+/// JSON object to string values. Not an object → `None`.
+pub fn parse_attributes(raw: &str) -> Option<BTreeMap<String, String>> {
+    let cleaned = raw.replace("\"\"", "\"");
+    let cleaned = cleaned.trim_matches('"');
+    if cleaned == "{}" {
+        return Some(BTreeMap::new());
+    }
+    let value: serde_json::Value = serde_json::from_str(cleaned).ok()?;
+    let object = value.as_object()?;
+    Some(
+        object
+            .iter()
+            .map(|(key, value)| {
+                let text = match value {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Null => String::new(),
+                    serde_json::Value::Number(n) => match n.as_f64() {
+                        Some(f) if f.fract() == 0.0 && f.abs() < 9.0e15 => format!("{}", f as i64),
+                        _ => n.to_string(),
+                    },
+                    other => other.to_string(),
+                };
+                (key.clone(), text)
+            })
+            .collect(),
+    )
+}
+
+/// Keeps one entry per address (the constraint is `UNIQUE(group_id, email)`,
+/// case-sensitive like Go). `keep_last` mirrors Go's overwrite import, where
+/// the last row for an address wins; otherwise the first wins.
+pub fn dedupe(contacts: Vec<ImportedContact>, keep_last: bool) -> Vec<ImportedContact> {
+    let mut seen = HashSet::new();
+    let mut out: Vec<ImportedContact> = if keep_last {
+        let mut reversed: Vec<_> = contacts
+            .into_iter()
+            .rev()
+            .filter(|c| seen.insert(c.email.clone()))
+            .collect();
+        reversed.reverse();
+        reversed
+    } else {
+        contacts
+            .into_iter()
+            .filter(|c| seen.insert(c.email.clone()))
+            .collect()
+    };
+    out.shrink_to_fit();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parses_like_go() {
+    fn parses_email_lists_like_go() {
         let parsed = parse_email_list(
             " A@Example.com\r\nb@example.com;c@example.com, a@example.com\nnot-an-email\n\n",
         );
         assert_eq!(parsed, ["a@example.com", "b@example.com", "c@example.com"]);
         assert!(parse_email_list("").is_empty());
         assert!(parse_email_list("nobody@localhost").is_empty());
+    }
+
+    #[test]
+    fn email_rule() {
+        assert!(is_valid_email("a.b-c_d@mail.example.co"));
+        assert!(is_valid_email("user+tag@example.com"));
+        assert!(!is_valid_email("no-at.example.com"));
+        assert!(!is_valid_email("a@localhost"));
+        assert!(!is_valid_email("a b@example.com"));
+    }
+
+    #[test]
+    fn csv_files_use_headers() {
+        let csv = "Email,Active,Attributes\n\
+                   a@x.com,1,\"{\"\"name\"\":\"\"Ann\"\",\"\"age\"\":30}\"\n\
+                   b@x.com,0,\n\
+                   bad-address,1,\n\
+                   ,1,\n\
+                   short\n";
+        let got = parse_contacts(csv, ImportSource::File);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].email, "a@x.com");
+        assert_eq!(got[0].attribs.get("name").map(String::as_str), Some("Ann"));
+        assert_eq!(got[0].attribs.get("age").map(String::as_str), Some("30"));
+        assert_eq!(got[1].active, 0);
+    }
+
+    #[test]
+    fn plain_lines_and_pastes() {
+        let text = "a@x.com, {\"city\": \"Erbil\", \"vip\": true}\nb@x.com\n\nc@x.com,null\nnope\n";
+        for source in [ImportSource::File, ImportSource::Paste] {
+            let got = parse_contacts(text, source);
+            let emails: Vec<&str> = got.iter().map(|c| c.email.as_str()).collect();
+            assert_eq!(emails, ["a@x.com", "b@x.com", "c@x.com"]);
+            assert_eq!(got[0].attribs.get("vip").map(String::as_str), Some("true"));
+        }
+        // A paste starting with a header-like line is still read line by line.
+        let got = parse_contacts("email\na@x.com", ImportSource::Paste);
+        assert_eq!(got.len(), 1);
+    }
+
+    #[test]
+    fn attribute_values() {
+        let a = parse_attributes(r#"{"n": 1.5, "z": null, "l": [1,2]}"#).expect("object");
+        assert_eq!(a["n"], "1.5");
+        assert_eq!(a["z"], "");
+        assert_eq!(a["l"], "[1,2]");
+        assert_eq!(parse_attributes("{}"), Some(BTreeMap::new()));
+        assert_eq!(parse_attributes("[1]"), None);
+    }
+
+    #[test]
+    fn dedupe_keeps_first_or_last() {
+        let c = |email: &str, active| ImportedContact {
+            email: email.into(),
+            active,
+            attribs: BTreeMap::new(),
+        };
+        let input = vec![c("a@x.com", 1), c("b@x.com", 1), c("a@x.com", 0)];
+        let first = dedupe(input.clone(), false);
+        assert_eq!(first, [c("a@x.com", 1), c("b@x.com", 1)]);
+        let last = dedupe(input, true);
+        assert_eq!(last, [c("b@x.com", 1), c("a@x.com", 0)]);
     }
 }
