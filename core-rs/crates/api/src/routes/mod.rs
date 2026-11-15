@@ -6,15 +6,25 @@
 mod tags;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::middleware::from_fn_with_state;
 
 use crate::state::AppState;
 use crate::{auth, rbac};
 
+const BODY_LIMIT: usize = 32 * 1024 * 1024;
+
+/// Current Unix time for the schema's `INTEGER` timestamp columns.
+pub(crate) fn now() -> i32 {
+    i32::try_from(chrono::Utc::now().timestamp()).unwrap_or(i32::MAX)
+}
+
 pub fn router(state: AppState) -> Router<AppState> {
     // Route layers run outermost-last: auth, then RBAC, then the handler.
     let authenticated = Router::new()
         .merge(tags::routes())
+        // Pasted address lists can be large; Go allowed up to 800 MB.
+        .route_layer(DefaultBodyLimit::max(BODY_LIMIT))
         .route_layer(from_fn_with_state(state.clone(), rbac::require_permission))
         .route_layer(from_fn_with_state(state, auth::require_auth));
 

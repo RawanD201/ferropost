@@ -34,7 +34,7 @@ in Rust.
 
 | Route | Notes |
 |---|---|
-| `GET /api/tags/list`, `GET /api/tags/all` | One query with a join instead of N+1 group lookups; literal keyword match. |
+| `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
 Everything else is served by Go through the proxy.
 
@@ -76,7 +76,7 @@ docker run -d --rm --name bmrs-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_USE
   -e POSTGRES_DB=billionmail -p 127.0.0.1:55432:5432 postgres:17-alpine
 docker run -d --rm --name bmrs-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine --requirepass test
 FERROPOST_TEST_DATABASE_URL=postgres://billionmail:test@127.0.0.1:55432/billionmail \
-FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test -p ferropost-api --test e2e
+FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test -p ferropost-api --tests
 ```
 
 ## Build and deploy
@@ -105,7 +105,10 @@ owns the ports again.
    the same English text as Go, so the existing language packs still apply.
 5. Move the domain's background jobs (`core/internal/service/timers`) with it,
    and switch them off in Go in the same change.
-6. Add unit tests for the rules and extend `crates/api/tests/e2e.rs`.
+6. Record writes with the `Audit` extractor using Go's log text, so the
+   operation log reads the same.
+7. Add unit tests for the rules and an integration test file per domain in
+   `crates/api/tests/` (shared harness in `tests/common/`, one test per file).
 
 ## Deliberate differences from Go
 
@@ -125,6 +128,13 @@ These are security fixes that keep the frontend working unchanged:
 - **Errors:** internal errors return a generic message and are logged. Go sent
   raw error text, including SQL errors, to the browser.
 - **Paging:** `page_size` is capped at 1000.
+- **Operation log:** snapshots contain the request payload only. Go's request
+  structs captured the `Authorization` header, so access tokens ended up in
+  `logs/core/operation_log/*.json`.
+- **Error codes:** business errors carry a real code (400 rejected, 404 not
+  found, 409 conflict) instead of Go's `code: 0`. The console only reads `msg`.
+- **Tags:** creating a tag in a group that does not exist is rejected (Go
+  created an orphan tag).
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -132,8 +142,8 @@ These are security fixes that keep the frontend working unchanged:
 ## Roadmap
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
-2. Simple domains: overview, operation_log, tags (writes), contact, subscribe_list, email_template
-3. `maillog_stat`: streaming Postfix log parser and the `/pmta/` tracker
-4. Sending: `batch_mail` + `warmup` on a durable Postgres job queue
+2. Simple domains: tags (done), operation_log, email_template, contact
+3. `maillog_stat` and `overview`: streaming Postfix log parser, the `/pmta/` tracker, dashboard stats
+4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations

@@ -7,7 +7,9 @@
 //! the Go version simply stops receiving that traffic.
 
 pub mod access_log;
+pub mod audit;
 pub mod auth;
+pub mod body;
 pub mod conn;
 pub mod de;
 pub mod edge;
@@ -17,6 +19,7 @@ pub mod proxy;
 pub mod rbac;
 pub mod routes;
 pub mod state;
+pub mod validate;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;

@@ -36,6 +36,7 @@ fred.workspace = true
 md-5.workspace = true
 sqlx.workspace = true
 tempfile = "3"
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

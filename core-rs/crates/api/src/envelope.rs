@@ -43,6 +43,13 @@ pub enum ApiError {
     Forbidden,
     #[error("not found: {0}")]
     NotFound(String),
+    /// The request conflicts with existing data (duplicate name, ...).
+    #[error("conflict: {0}")]
+    Conflict(String),
+    /// A business rule rejected the request. Go reported these with
+    /// `success: false, code: 0`; the frontend only shows `msg`.
+    #[error("rejected: {0}")]
+    Rejected(String),
     /// Invalid input (Go answered validation failures with code 412).
     #[error("validation: {0}")]
     Validation(String),
@@ -59,6 +66,8 @@ impl ApiError {
             Self::Unauthorized(_) => 401,
             Self::Forbidden => 403,
             Self::NotFound(_) => 404,
+            Self::Conflict(_) => 409,
+            Self::Rejected(_) => 400,
             Self::Validation(_) => 412,
             Self::Unavailable(_) => 503,
             Self::Internal(_) => 500,
@@ -67,7 +76,11 @@ impl ApiError {
 
     fn public_message(&self) -> String {
         match self {
-            Self::Unauthorized(msg) | Self::NotFound(msg) | Self::Validation(msg) => msg.clone(),
+            Self::Unauthorized(msg)
+            | Self::NotFound(msg)
+            | Self::Conflict(msg)
+            | Self::Rejected(msg)
+            | Self::Validation(msg) => msg.clone(),
             Self::Forbidden => "Insufficient permissions".to_owned(),
             Self::Unavailable(_) => "Service temporarily unavailable".to_owned(),
             // Go returned raw error strings (SQL errors included). Details are

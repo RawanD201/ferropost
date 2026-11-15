@@ -4,7 +4,9 @@
 //! Queries here target that schema unchanged so both servers can share one
 //! database during the migration.
 
+pub mod audit;
 pub mod domains;
+pub mod groups;
 pub mod options;
 pub mod rbac;
 pub mod tags;
