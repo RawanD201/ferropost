@@ -152,7 +152,8 @@ pub async fn reset_schema(store: &Store) {
     let statements = [
         "DROP TABLE IF EXISTS role_permission, account_role, permission, role, account,
              bm_contact_tags, bm_contacts, bm_tags, bm_contact_groups, bm_options,
-             bm_console_ip_whitelist, bm_operation_logs, email_templates CASCADE",
+             bm_console_ip_whitelist, bm_operation_logs, email_templates, email_tasks,
+             mailstat_message_ids, mailstat_opened, mailstat_clicked CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -219,6 +220,22 @@ pub async fn reset_schema(store: &Store) {
             create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
             update_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
             UNIQUE(temp_name))",
+        // Only the columns Rust reads so far.
+        "CREATE TABLE email_tasks (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE mailstat_message_ids (postfix_message_id TEXT PRIMARY KEY,
+            log_time_millis BIGINT NOT NULL DEFAULT 0,
+            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
+            message_id TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE mailstat_opened (id SERIAL PRIMARY KEY, campaign_id INTEGER NOT NULL DEFAULT 0,
+            log_time_millis BIGINT NOT NULL DEFAULT 0,
+            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
+            recipient TEXT NOT NULL DEFAULT '', postfix_message_id TEXT NOT NULL DEFAULT '',
+            message_id TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE mailstat_clicked (id SERIAL PRIMARY KEY, campaign_id INTEGER NOT NULL DEFAULT 0,
+            log_time_millis BIGINT NOT NULL DEFAULT 0,
+            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
+            recipient TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+            postfix_message_id TEXT NOT NULL DEFAULT '', message_id TEXT NOT NULL DEFAULT '')",
         "CREATE TABLE bm_operation_logs (
             id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL DEFAULT 0, type VARCHAR(64) NOT NULL,
             log TEXT NOT NULL, ip VARCHAR(64) NOT NULL, info TEXT NOT NULL,

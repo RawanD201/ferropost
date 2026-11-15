@@ -8,6 +8,7 @@ mod contacts;
 mod email_template;
 mod operation_log;
 mod tags;
+mod tracking;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -36,5 +37,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route_layer(from_fn_with_state(state.clone(), rbac::require_permission))
         .route_layer(from_fn_with_state(state, auth::require_auth));
 
-    Router::new().merge(authenticated)
+    // Public routes: reached by recipients and other servers, not the console.
+    let public = Router::new().merge(tracking::routes());
+
+    Router::new().merge(authenticated).merge(public)
 }

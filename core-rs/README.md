@@ -49,6 +49,7 @@ everything. supervisord sets it for both programs.
 | `/api/contact/group/*` (11 of 12 routes) | Create, import, export, update, delete, list, all, merge and counts. Create-and-import is one transaction; imports are one statement each and skip or overwrite duplicates; list counts subscribers in one query; export adds Excel. `info` (subscription defaults) is still Go and moves with the subscribe flow in step 4. |
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
+| `/pmta/<token>` (open pixel, click redirect) | Accepts Go's existing links. Counts an event and redirects only for mail this server sent, and only to `http`/`https`; stores the clicked URL; activity updates are immediate. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
@@ -183,6 +184,12 @@ These are security fixes that keep the frontend working unchanged:
   pass and stored deferrals again, missed lines still in `mail.log.1` after
   rotation, and guessed the year of syslog timestamps from the file's
   modification time (wrong across New Year).
+- **Tracking links:** Go's link "encryption" carries its own key, so anyone
+  can decode or forge a link, including a click link that redirects to any
+  site from your mail domain (an open redirect usable for phishing). Old
+  links still work, but a click only counts and redirects when its message
+  ID was logged by this server, and only to `http`/`https` URLs. Signed
+  links replace the format when sending moves to Rust (step 4).
 - **Local-delivery aggregation** re-scans an hour of overlap, so a delivery
   logged after its sender line is no longer skipped, and matches domains
   exactly instead of with `LIKE`.
@@ -194,7 +201,7 @@ These are security fixes that keep the frontend working unchanged:
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done; `contact/group/info` moves to step 4)
-3. `maillog_stat` and `overview`: Postfix log ingestion (done), the `/pmta/` tracker, dashboard stats
-4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue
+3. `maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker (done), dashboard stats
+4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue, with HMAC-signed tracking links
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations

@@ -14,6 +14,7 @@ pub mod rbac;
 pub mod tags;
 pub mod templates;
 pub mod tokens;
+pub mod tracking;
 pub mod whitelist;
 
 use std::time::Duration;

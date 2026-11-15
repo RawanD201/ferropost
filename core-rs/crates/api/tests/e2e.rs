@@ -181,8 +181,12 @@ async fn end_to_end() {
     );
     let r = call(&gated, "/", &[], false).await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);
-    let r = call(&gated, "/pmta/open/abc", &[], false).await;
-    assert_eq!(r.body["go"], true, "tracking links stay public");
+    let r = call(&gated, "/pmta/not-a-token", &[], false).await;
+    assert_eq!(
+        (r.status, r.body.clone()),
+        (StatusCode::OK, json!("Invalid -1")),
+        "tracking links stay public and are served natively"
+    );
     let r = call(&gated, "/api/unsubscribe", &[], false).await;
     assert_eq!(r.body["go"], true, "unsubscribe stays public");
 

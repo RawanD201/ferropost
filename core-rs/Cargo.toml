@@ -43,6 +43,9 @@ hex = "0.4"
 ipnet = "2"
 regex = "1"
 csv = "1"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+base64 = "0.22"
 rust_xlsxwriter = "0.102"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
