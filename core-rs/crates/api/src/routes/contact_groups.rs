@@ -1,12 +1,13 @@
 //! `/api/contact/group/*` (Go: `internal/controller/contact`).
 //!
-//! Ported: `create`, `import`, `delete`, `update`, `update_unsubscribe`,
-//! `list`, `all`, `merge_contacts`, `contact_count`, `tag_contact_count`.
-//! Still served by Go: `export` (moves with contact export) and `info`
-//! (subscription defaults; moves with the subscribe flow).
+//! Ported: `create`, `import`, `export`, `delete`, `update`,
+//! `update_unsubscribe`, `list`, `all`, `merge_contacts`, `contact_count`,
+//! `tag_contact_count`. Still served by Go: `info` (subscription defaults;
+//! moves with the subscribe flow).
 
 use axum::Router;
 use axum::extract::State;
+use axum::response::Response;
 use axum::routing::{get, post};
 use ferropost_domain::audit::LogType;
 use ferropost_domain::contacts::{ImportSource, dedupe, parse_contacts};
@@ -19,8 +20,9 @@ use serde::{Deserialize, Serialize};
 use super::now;
 use crate::audit::Audit;
 use crate::body::ApiBody;
-use crate::de::{ApiQuery, i64_list, opt_i64, opt_string};
+use crate::de::{ApiQuery, i64_list, opt_bool, opt_i64, opt_string};
 use crate::envelope::{ApiError, ApiResponse};
+use crate::export::{self as files, Format};
 use crate::lang::Lang;
 use crate::state::AppState;
 use crate::validate;
@@ -29,6 +31,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/contact/group/create", post(create))
         .route("/api/contact/group/import", post(import))
+        .route("/api/contact/group/export", post(export))
         .route("/api/contact/group/delete", post(delete))
         .route("/api/contact/group/update", post(update))
         .route(
@@ -279,6 +282,70 @@ async fn import(
             imported_count: imported,
         },
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct ExportBody {
+    #[serde(default, deserialize_with = "i64_list")]
+    group_ids: Vec<i64>,
+    #[serde(default, deserialize_with = "opt_i64")]
+    export_type: Option<i64>,
+    #[serde(default)]
+    format: Option<String>,
+    /// Go always exported unsubscribed contacts, ignoring `false`.
+    #[serde(default, deserialize_with = "opt_bool")]
+    include_unsubscribe: Option<bool>,
+}
+
+/// `export_type` 1: one file with every address across the groups;
+/// 2: a ZIP with one file per group.
+async fn export(
+    State(state): State<AppState>,
+    Lang(lang): Lang,
+    audit: Audit,
+    ApiBody(body): ApiBody<ExportBody>,
+) -> Result<Response, ApiError> {
+    let group_ids = validate::id_list("group_ids", &body.group_ids)?;
+    let merged = validate::one_of("export_type", body.export_type, &[1, 2])? == 1;
+    let format = validate::str_one_of("format", &body.format, &["csv", "excel", "txt"])?;
+    let format = Format::parse(format).ok_or_else(|| anyhow::anyhow!("validated above"))?;
+    let include_inactive = body.include_unsubscribe.unwrap_or(true);
+    let pg = &state.store.pg;
+    let groups = ferropost_store::groups::names(pg, &group_ids).await?;
+
+    let (name, bytes) = if merged {
+        let rows =
+            ferropost_store::contacts::export_merged(pg, &group_ids, include_inactive).await?;
+        (
+            files::download_name(format.extension()),
+            files::render(&rows, format)?,
+        )
+    } else {
+        let mut entries = Vec::new();
+        for (id, group) in &groups {
+            let rows = ferropost_store::contacts::export_group(pg, *id, include_inactive).await?;
+            if !rows.is_empty() {
+                let entry = format!("{}.{}", files::file_name(group), format.extension());
+                entries.push((entry, files::render(&rows, format)?));
+            }
+        }
+        if entries.is_empty() {
+            return Err(ApiError::Rejected(state.i18n.tr(
+                &lang,
+                "No contacts to export",
+                &[],
+            )));
+        }
+        (files::download_name("zip"), files::zip(&entries)?)
+    };
+
+    let names: Vec<&str> = groups.iter().map(|(_, n)| n.as_str()).collect();
+    let log = format!(
+        "Contacts Group exported successfully: {} ",
+        names.join(", ")
+    );
+    audit.record(LogType::ContactsGroup, &log).await;
+    Ok(files::download(&name, bytes))
 }
 
 #[derive(Debug, Deserialize)]

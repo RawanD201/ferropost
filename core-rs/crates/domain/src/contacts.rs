@@ -336,6 +336,122 @@ pub fn active_window_start(now: i64, days: i64) -> Option<i64> {
     Some(start.timestamp())
 }
 
+/// Bucket size of the subscriber trend chart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Granularity {
+    Daily,
+    Monthly,
+}
+
+impl Granularity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::Monthly => "monthly",
+        }
+    }
+
+    /// `to_char` format of a bucket label.
+    pub fn sql_format(self) -> &'static str {
+        match self {
+            Self::Daily => "YYYY-MM-DD",
+            Self::Monthly => "YYYY-MM",
+        }
+    }
+}
+
+/// Time span and bucket size of the trend chart, in UTC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrendWindow {
+    pub granularity: Granularity,
+    /// Midnight of the first day.
+    pub start: i64,
+    /// Last second of today.
+    pub end: i64,
+}
+
+/// Go's windows: 7/30/90/180 → daily buckets back that many days; anything
+/// else → monthly buckets over the last 11 months plus this one.
+pub fn trend_window(now: i64, interval: i64) -> TrendWindow {
+    use chrono::{DateTime, Months, TimeDelta};
+    let now_dt = DateTime::from_timestamp(now, 0).unwrap_or_default();
+    let day_start = |t: i64| t - t.rem_euclid(86_400);
+    let end = day_start(now) + 86_399;
+    let (granularity, start) = match interval {
+        7 | 30 | 90 | 180 => (
+            Granularity::Daily,
+            now_dt.checked_sub_signed(TimeDelta::days(interval)),
+        ),
+        _ => (
+            Granularity::Monthly,
+            now_dt.checked_sub_months(Months::new(11)),
+        ),
+    };
+    TrendWindow {
+        granularity,
+        start: day_start(start.map_or(now, |s| s.timestamp())),
+        end,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TrendPoint {
+    pub date: String,
+    pub count: i64,
+}
+
+/// Every bucket of the window in order, zero where `counts` has nothing.
+/// Months are walked by calendar month; Go stepped with `AddDate` and
+/// skipped February when the window started on the 29th to 31st.
+pub fn fill_trend(window: &TrendWindow, counts: &[(String, i64)]) -> Vec<TrendPoint> {
+    use chrono::{DateTime, Datelike, Months, NaiveDate, TimeDelta};
+    let count_of = |label: &str| {
+        counts
+            .iter()
+            .find(|(l, _)| l == label)
+            .map_or(0, |(_, c)| *c)
+    };
+    let (Some(start), Some(end)) = (
+        DateTime::from_timestamp(window.start, 0).map(|d| d.date_naive()),
+        DateTime::from_timestamp(window.end, 0).map(|d| d.date_naive()),
+    ) else {
+        return Vec::new();
+    };
+
+    let mut points = Vec::new();
+    match window.granularity {
+        Granularity::Daily => {
+            let mut day = start;
+            while day <= end {
+                let label = day.format("%Y-%m-%d").to_string();
+                points.push(TrendPoint {
+                    count: count_of(&label),
+                    date: label,
+                });
+                day += TimeDelta::days(1);
+            }
+        }
+        Granularity::Monthly => {
+            let first = |d: NaiveDate| NaiveDate::from_ymd_opt(d.year(), d.month(), 1);
+            let (Some(mut month), Some(last)) = (first(start), first(end)) else {
+                return points;
+            };
+            while month <= last {
+                let label = month.format("%Y-%m").to_string();
+                points.push(TrendPoint {
+                    count: count_of(&label),
+                    date: label,
+                });
+                let Some(next) = month.checked_add_months(Months::new(1)) else {
+                    break;
+                };
+                month = next;
+            }
+        }
+    }
+    points
+}
+
 #[cfg(test)]
 mod window_tests {
     use super::active_window_start;
@@ -350,5 +466,35 @@ mod window_tests {
         // 2025-03-31T12:00:00Z
         assert_eq!(active_window_start(now, 365), Some(1_743_422_400));
         assert_eq!(active_window_start(now, 14), None);
+    }
+
+    #[test]
+    fn trend_windows_and_fill() {
+        use super::{Granularity, fill_trend, trend_window};
+        // 2026-03-31T12:00:00Z
+        let now = 1_774_958_400;
+        let daily = trend_window(now, 7);
+        assert_eq!(daily.granularity, Granularity::Daily);
+        let points = fill_trend(&daily, &[("2026-03-30".into(), 4)]);
+        assert_eq!(points.len(), 8, "seven days back plus today");
+        assert_eq!(points[0].date, "2026-03-24");
+        assert_eq!(points[6].count, 4);
+
+        let monthly = trend_window(now, 0);
+        assert_eq!(monthly.granularity, Granularity::Monthly);
+        let points = fill_trend(&monthly, &[]);
+        let labels: Vec<&str> = points.iter().map(|p| p.date.as_str()).collect();
+        assert_eq!(labels.len(), 12);
+        assert_eq!(labels[0], "2025-04");
+        assert_eq!(labels[11], "2026-03");
+        // A window starting on Jan 30 must not skip February (Go did).
+        let window = trend_window(1_767_096_000, 365); // 2025-12-30T12:00Z
+        let labels: Vec<String> = fill_trend(&window, &[])
+            .into_iter()
+            .map(|p| p.date)
+            .collect();
+        assert_eq!(labels.first().map(String::as_str), Some("2025-01"));
+        assert_eq!(labels.get(1).map(String::as_str), Some("2025-02"));
+        assert_eq!(labels.len(), 12);
     }
 }

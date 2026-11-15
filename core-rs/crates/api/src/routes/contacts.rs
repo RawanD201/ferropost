@@ -1,15 +1,18 @@
 //! `/api/contact/*` contact routes (Go: `internal/controller/contact`).
 //!
-//! Ported: `list`, `list_ndp`, `edit`, `edit_ndp`, `delete`, `delete_ndp`,
-//! `update_group`. Still served by Go: `batch_tags_opt`, `trend`.
+//! Fully ported: `list`, `list_ndp`, `edit`, `edit_ndp`, `delete`,
+//! `delete_ndp`, `update_group`, `batch_tags_opt`, `trend`.
 
 use axum::Router;
 use axum::extract::State;
 use axum::routing::{get, post};
 use ferropost_domain::audit::LogType;
-use ferropost_domain::contacts::{Contact, active_window_start, parse_attributes};
+use ferropost_domain::contacts::{
+    Contact, Granularity, TrendPoint, active_window_start, fill_trend, parse_attributes,
+    trend_window,
+};
 use ferropost_domain::paging::{Page, PageRequest};
-use ferropost_store::contacts::{ContactFilter, EmailFilter};
+use ferropost_store::contacts::{ContactFilter, EmailFilter, TrendFilter};
 use serde::{Deserialize, Serialize};
 
 use super::now;
@@ -30,6 +33,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/contact/delete", post(delete))
         .route("/api/contact/delete_ndp", post(delete_ndp))
         .route("/api/contact/update_group", post(update_group))
+        .route("/api/contact/batch_tags_opt", post(batch_tags))
+        .route("/api/contact/trend", get(trend))
 }
 
 const LIST_OK: &str = "Get contacts list successfully";
@@ -119,15 +124,7 @@ async fn list_ndp(
     let sort_order = q.sort_order.unwrap_or_else(|| "desc".to_owned());
     validate::optional_str_in("sort_order", &Some(sort_order.clone()), &["asc", "desc"])?;
 
-    // Invalid or non-positive IDs are ignored, as in Go.
-    let tag_ids = q
-        .tags
-        .as_deref()
-        .unwrap_or_default()
-        .split(',')
-        .filter_map(|t| t.trim().parse::<i32>().ok())
-        .filter(|id| *id > 0)
-        .collect();
+    let tag_ids = parse_tag_ids(q.tags.as_deref());
     let last_active = match (last_active, q.time_interval) {
         (-1, _) | (_, None) => None,
         (status, Some(days)) => active_window_start(chrono::Utc::now().timestamp(), days)
@@ -407,6 +404,146 @@ async fn update_group(
             .tr(&lang, "Contacts group updated successfully", &[]),
         Moved { updated_count },
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchTagsBody {
+    #[serde(default, deserialize_with = "i64_list")]
+    ids: Vec<i64>,
+    #[serde(default, deserialize_with = "i64_list")]
+    tag_ids: Vec<i64>,
+    /// 1 add, 2 remove.
+    #[serde(default, deserialize_with = "opt_i64")]
+    action: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct BatchTagsSnapshot<'a> {
+    tag_ids: &'a [i32],
+    contact_ids: &'a [i32],
+    operation: &'a str,
+    total_contacts: usize,
+    processed: u64,
+    skipped: u64,
+    errors: u64,
+}
+
+/// Adds or removes tags on contact rows. A tag only applies to contacts of
+/// its group. One statement either way, so the change is all-or-nothing.
+async fn batch_tags(
+    State(state): State<AppState>,
+    Lang(lang): Lang,
+    audit: Audit,
+    ApiBody(body): ApiBody<BatchTagsBody>,
+) -> Result<ApiResponse<()>, ApiError> {
+    let ids = validate::id_list("ids", &body.ids)?;
+    let tag_ids = validate::id_list("tag_ids", &body.tag_ids)?;
+    let add = validate::one_of("action", body.action, &[1, 2])? == 1;
+    let pg = &state.store.pg;
+
+    let change = if add {
+        ferropost_store::contacts::tag_rows(pg, &ids, &tag_ids, now()).await?
+    } else {
+        ferropost_store::contacts::untag_rows(pg, &ids, &tag_ids).await?
+    };
+
+    let operation = if add { "Add tags" } else { "Remove tags" };
+    let log = format!("{operation} for {} contacts successfully", change.changed);
+    let snapshot = BatchTagsSnapshot {
+        tag_ids: &tag_ids,
+        contact_ids: &ids,
+        operation,
+        total_contacts: ids.len(),
+        processed: change.changed,
+        skipped: change.skipped,
+        errors: 0,
+    };
+    audit.record_with(LogType::Tag, &log, &snapshot).await;
+
+    let template = if add {
+        "Successfully added tags to {} contacts"
+    } else {
+        "Successfully removed tags from {} contacts"
+    };
+    let mut msg = state.i18n.tr(&lang, template, &[&change.changed]);
+    if change.skipped > 0 {
+        msg.push_str(
+            &state
+                .i18n
+                .tr(&lang, " ({} skipped, {} errors)", &[&change.skipped, &0]),
+        );
+    }
+    Ok(ApiResponse::ok(msg, ()))
+}
+
+#[derive(Debug, Deserialize)]
+struct TrendQuery {
+    #[serde(default, deserialize_with = "opt_i64")]
+    group_id: Option<i64>,
+    #[serde(default, deserialize_with = "opt_i64")]
+    active: Option<i64>,
+    #[serde(default, deserialize_with = "opt_i64")]
+    last_active_status: Option<i64>,
+    #[serde(default, deserialize_with = "opt_i64")]
+    time_interval: Option<i64>,
+    #[serde(default)]
+    tags: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Trend {
+    time_granularity: &'static str,
+    monthly_data: Vec<TrendPoint>,
+    daily_data: Vec<TrendPoint>,
+}
+
+/// New (or active) subscribers per day or month.
+async fn trend(
+    State(state): State<AppState>,
+    Lang(lang): Lang,
+    ApiQuery(q): ApiQuery<TrendQuery>,
+) -> Result<ApiResponse<Trend>, ApiError> {
+    let active = validate::optional_one_of("active", q.active, &[0, 1, -1], -1)?;
+    let last_active =
+        validate::optional_one_of("last_active_status", q.last_active_status, &[0, 1, -1], -1)?;
+    let interval = q.time_interval.unwrap_or(0);
+    let now_ts = chrono::Utc::now().timestamp();
+    let window = trend_window(now_ts, interval);
+
+    let filter = TrendFilter {
+        group_id: validate::optional_id("group_id", q.group_id)?,
+        active: (active != -1).then_some(active as i32),
+        tag_ids: parse_tag_ids(q.tags.as_deref()),
+        last_active: if last_active != -1 && interval > 0 {
+            active_window_start(now_ts, interval).map(|since| (since, last_active == 1))
+        } else {
+            None
+        },
+    };
+    let counts = ferropost_store::contacts::trend(&state.store.pg, &filter, &window).await?;
+    let points = fill_trend(&window, &counts);
+    let (monthly_data, daily_data) = match window.granularity {
+        Granularity::Monthly => (points, Vec::new()),
+        Granularity::Daily => (Vec::new(), points),
+    };
+    Ok(ApiResponse::ok(
+        state.i18n.tr(&lang, "Get contacts trend successfully", &[]),
+        Trend {
+            time_granularity: window.granularity.as_str(),
+            monthly_data,
+            daily_data,
+        },
+    ))
+}
+
+/// Comma-separated tag IDs; `-1`, empty, invalid or non-positive entries
+/// are ignored (as in Go).
+fn parse_tag_ids(raw: Option<&str>) -> Vec<i32> {
+    raw.unwrap_or_default()
+        .split(',')
+        .filter_map(|t| t.trim().parse::<i32>().ok())
+        .filter(|id| *id > 0)
+        .collect()
 }
 
 /// Non-empty, trimmed, de-duplicated addresses.

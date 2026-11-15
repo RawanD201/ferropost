@@ -456,3 +456,196 @@ pub async fn move_addresses(
     tx.commit().await?;
     Ok(placed)
 }
+
+/// Outcome of adding or removing tags on contact rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TagChange {
+    pub changed: u64,
+    /// Requested pairs not changed (already in that state, tag from
+    /// another group, or unknown contact/tag).
+    pub skipped: u64,
+}
+
+/// Tags contact rows. A tag only applies to contacts of its own group.
+pub async fn tag_rows(
+    pg: &PgPool,
+    contact_ids: &[i32],
+    tag_ids: &[i32],
+    now: i32,
+) -> Result<TagChange> {
+    let mut tx = pg.begin().await?;
+    let (contacts, tags) = existing_counts(&mut tx, contact_ids, tag_ids).await?;
+    if contacts == 0 || tags == 0 {
+        return Ok(TagChange {
+            changed: 0,
+            skipped: contact_ids.len() as u64,
+        });
+    }
+    let changed = sqlx::query(
+        "INSERT INTO bm_contact_tags (contact_id, tag_id, create_time)
+         SELECT c.id, t.id, $3
+           FROM bm_contacts c JOIN bm_tags t ON t.group_id = c.group_id
+          WHERE c.id = ANY($1) AND t.id = ANY($2)
+         ON CONFLICT (contact_id, tag_id) DO NOTHING",
+    )
+    .bind(contact_ids)
+    .bind(tag_ids)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tx.commit().await?;
+    Ok(TagChange {
+        changed,
+        skipped: (contacts * tags).saturating_sub(changed),
+    })
+}
+
+/// Removes tags from contact rows.
+pub async fn untag_rows(pg: &PgPool, contact_ids: &[i32], tag_ids: &[i32]) -> Result<TagChange> {
+    let mut tx = pg.begin().await?;
+    let (contacts, tags) = existing_counts(&mut tx, contact_ids, tag_ids).await?;
+    if contacts == 0 || tags == 0 {
+        return Ok(TagChange {
+            changed: 0,
+            skipped: contact_ids.len() as u64,
+        });
+    }
+    let changed =
+        sqlx::query("DELETE FROM bm_contact_tags WHERE contact_id = ANY($1) AND tag_id = ANY($2)")
+            .bind(contact_ids)
+            .bind(tag_ids)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+    tx.commit().await?;
+    Ok(TagChange {
+        changed,
+        skipped: (contacts * tags).saturating_sub(changed),
+    })
+}
+
+async fn existing_counts(
+    conn: &mut PgConnection,
+    contact_ids: &[i32],
+    tag_ids: &[i32],
+) -> Result<(u64, u64)> {
+    let (contacts, tags) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT (SELECT COUNT(*) FROM bm_contacts WHERE id = ANY($1)),
+                (SELECT COUNT(*) FROM bm_tags WHERE id = ANY($2))",
+    )
+    .bind(contact_ids)
+    .bind(tag_ids)
+    .fetch_one(conn)
+    .await?;
+    Ok((
+        u64::try_from(contacts).unwrap_or(0),
+        u64::try_from(tags).unwrap_or(0),
+    ))
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TrendFilter {
+    pub group_id: Option<i32>,
+    pub active: Option<i32>,
+    pub tag_ids: Vec<i32>,
+    /// Bucket by `last_active_at` and keep contacts active (`true`) or not
+    /// (`false`) since the given time. Otherwise bucket by `create_time`
+    /// inside the window.
+    pub last_active: Option<(i64, bool)>,
+}
+
+/// Distinct contacts per bucket label (UTC).
+pub async fn trend(
+    pg: &PgPool,
+    filter: &TrendFilter,
+    window: &ferropost_domain::contacts::TrendWindow,
+) -> Result<Vec<(String, i64)>> {
+    let (since, active_since) = match filter.last_active {
+        Some((since, active)) => (Some(since), Some(active)),
+        None => (None, None),
+    };
+    let field = if filter.last_active.is_some() {
+        "c.last_active_at"
+    } else {
+        "c.create_time"
+    };
+    let sql = format!(
+        "SELECT to_char(to_timestamp({field}) AT TIME ZONE 'UTC', '{format}') AS label,
+                COUNT(DISTINCT c.id)
+           FROM bm_contacts c
+          WHERE ($1::int IS NULL OR c.group_id = $1)
+            AND ($2::int IS NULL OR c.active = $2)
+            AND (cardinality($3::int[]) = 0 OR EXISTS (
+                 SELECT 1 FROM bm_contact_tags ct WHERE ct.contact_id = c.id AND ct.tag_id = ANY($3)))
+            AND ($4::bigint IS NULL
+                 OR ($5 AND c.last_active_at >= $4)
+                 OR (NOT $5 AND (c.last_active_at IS NULL OR c.last_active_at < $4)))
+            AND ($4::bigint IS NOT NULL OR c.create_time BETWEEN $6 AND $7)
+          GROUP BY label
+          ORDER BY label",
+        format = window.granularity.sql_format(),
+    );
+    Ok(sqlx::query_as::<_, (String, i64)>(&sql)
+        .bind(filter.group_id)
+        .bind(filter.active)
+        .bind(&filter.tag_ids)
+        .bind(since)
+        .bind(active_since)
+        .bind(window.start)
+        .bind(window.end)
+        .fetch_all(pg)
+        .await?)
+}
+
+/// A contact as exported.
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+pub struct ExportRow {
+    pub email: String,
+    pub attribs: String,
+    pub active: i32,
+    pub create_time: i32,
+}
+
+/// One row per address across the groups. Subscription state is kept when
+/// every group agrees, otherwise unsubscribed (Go's rule); attributes and
+/// creation time come from the oldest row. Sorted by address (Go's order
+/// was random).
+pub async fn export_merged(
+    pg: &PgPool,
+    group_ids: &[i32],
+    include_inactive: bool,
+) -> Result<Vec<ExportRow>> {
+    Ok(sqlx::query_as::<_, ExportRow>(
+        "SELECT email, attribs, active, create_time FROM (
+             SELECT email,
+                    (ARRAY_AGG(COALESCE(attribs, '{}'::jsonb)::text ORDER BY id))[1] AS attribs,
+                    CASE WHEN MIN(active) = MAX(active) THEN MIN(active) ELSE 0 END AS active,
+                    (ARRAY_AGG(create_time ORDER BY id))[1] AS create_time
+               FROM bm_contacts WHERE group_id = ANY($1) GROUP BY email
+         ) merged
+          WHERE $2 OR active = 1
+          ORDER BY email",
+    )
+    .bind(group_ids)
+    .bind(include_inactive)
+    .fetch_all(pg)
+    .await?)
+}
+
+pub async fn export_group(
+    pg: &PgPool,
+    group_id: i32,
+    include_inactive: bool,
+) -> Result<Vec<ExportRow>> {
+    Ok(sqlx::query_as::<_, ExportRow>(
+        "SELECT email, COALESCE(attribs, '{}'::jsonb)::text AS attribs, COALESCE(active, 0) AS active, create_time
+           FROM bm_contacts
+          WHERE group_id = $1 AND ($2 OR active = 1)
+          ORDER BY id",
+    )
+    .bind(group_id)
+    .bind(include_inactive)
+    .fetch_all(pg)
+    .await?)
+}

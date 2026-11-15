@@ -81,6 +81,22 @@ pub fn i64_list<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<i64>, 
     }
 }
 
+/// Optional boolean given as `true`/`false`, `1`/`0` or their strings.
+pub fn opt_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, D::Error> {
+    match Option::<serde_json::Value>::deserialize(deserializer)? {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Bool(b)) => Ok(Some(b)),
+        Some(serde_json::Value::Number(n)) => Ok(Some(n.as_i64() != Some(0))),
+        Some(serde_json::Value::String(s)) => match s.trim() {
+            "" => Ok(None),
+            "1" | "true" => Ok(Some(true)),
+            "0" | "false" => Ok(Some(false)),
+            other => Err(D::Error::custom(format!("invalid boolean `{other}`"))),
+        },
+        Some(other) => Err(D::Error::custom(format!("invalid boolean `{other}`"))),
+    }
+}
+
 /// Optional string where empty means absent.
 pub fn opt_string<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.filter(|s| !s.is_empty()))
