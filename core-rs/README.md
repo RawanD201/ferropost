@@ -34,6 +34,7 @@ in Rust.
 
 | Route | Notes |
 |---|---|
+| `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
 Everything else is served by Go through the proxy.
@@ -142,7 +143,7 @@ These are security fixes that keep the frontend working unchanged:
 ## Roadmap
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
-2. Simple domains: tags (done), operation_log, email_template, contact
+2. Simple domains: tags (done), operation_log (done), email_template, contact
 3. `maillog_stat` and `overview`: streaming Postfix log parser, the `/pmta/` tracker, dashboard stats
 4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy

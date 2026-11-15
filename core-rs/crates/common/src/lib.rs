@@ -3,6 +3,7 @@
 pub mod config;
 pub mod envfile;
 pub mod i18n;
+pub mod tail;
 
 pub use config::Config;
 pub use envfile::EnvFile;

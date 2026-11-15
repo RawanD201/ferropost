@@ -1,4 +1,24 @@
-//! Operation (audit) log categories.
+//! Operation (audit) log.
+
+use serde::Serialize;
+
+/// A row of `bm_operation_logs` as the log viewer receives it (Go's
+/// `entity.OperationLog`). `info` is the snapshot file path, if any.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+pub struct LogEntry {
+    pub id: i64,
+    pub user_id: i64,
+    #[serde(rename = "type")]
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "type"))]
+    pub log_type: String,
+    pub log: String,
+    pub ip: String,
+    pub info: String,
+    pub addtime: i64,
+    /// `"unknown"` when the account no longer exists.
+    pub username: String,
+}
 
 /// Categories stored in `bm_operation_logs.type`. The string values are the
 /// ones Go writes (`consts.LOGTYPE`), so filters in the log viewer keep

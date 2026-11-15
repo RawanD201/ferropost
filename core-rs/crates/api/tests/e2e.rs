@@ -123,7 +123,7 @@ async fn end_to_end() {
     assert_eq!(r.body["code"], 401, "revoked token");
 
     // --- i18n -----------------------------------------------------------
-    let lang_dir = h.root.path().join("languages/zh");
+    let lang_dir = h.core_dir().join("languages/zh");
     std::fs::create_dir_all(&lang_dir).expect("mkdir");
     std::fs::write(
         lang_dir.join("server.json"),
@@ -259,7 +259,7 @@ async fn end_to_end() {
     let config = {
         let db = std::env::var("FERROPOST_TEST_DATABASE_URL").expect("db");
         let redis = std::env::var("FERROPOST_TEST_REDIS_URL").expect("redis");
-        config(h.root.path(), "http://127.0.0.1:9", &db, &redis, &[])
+        config(&h.core_dir(), "http://127.0.0.1:9", &db, &redis, &[])
     };
     let down = ferropost_api::app(
         AppState::with_access_log(config, h.store.clone(), AccessLog::disabled()).expect("state"),

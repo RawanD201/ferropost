@@ -98,7 +98,14 @@ async fn tag_writes() {
         serde_json::from_str(&std::fs::read_to_string(info).expect("snapshot file"))
             .expect("snapshot json");
     assert_eq!(snapshot, json!({"group_id": 1, "name": " new "}));
-    assert!(info.contains("/logs/core/operation_log/"));
+    assert!(
+        info.starts_with(
+            &h.core_dir()
+                .join("../logs/core/operation_log")
+                .to_string_lossy()
+                .into_owned()
+        )
+    );
 
     // RBAC: viewer only has tags:read.
     let viewer = bearer(&token(2, "access_token", "viewer-tags"));

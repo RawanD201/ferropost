@@ -58,7 +58,8 @@ impl Harness {
             .try_init();
         let upstream = spawn_fake_go().await;
         let root = tempfile::tempdir().expect("tempdir");
-        let config = config(root.path(), &upstream, &db, &redis, &[]);
+        std::fs::create_dir_all(root.path().join("core")).expect("core dir");
+        let config = config(&root.path().join("core"), &upstream, &db, &redis, &[]);
         let store = Store::connect(&config).await.expect("connect");
         reset_schema(&store).await;
         Some(Self {
@@ -68,11 +69,17 @@ impl Harness {
         })
     }
 
+    /// The core directory (`/opt/billionmail/core` in production). Paths such
+    /// as `../logs/core` resolve inside the temporary directory.
+    pub fn core_dir(&self) -> std::path::PathBuf {
+        self.root.path().join("core")
+    }
+
     /// A fresh app (fresh caches) with extra `.env` values.
     pub fn app(&self, env: &[(&str, &str)]) -> Router {
         let db = std::env::var("FERROPOST_TEST_DATABASE_URL").expect("db url");
         let redis = std::env::var("FERROPOST_TEST_REDIS_URL").expect("redis url");
-        let config = config(self.root.path(), &self.upstream, &db, &redis, env);
+        let config = config(&self.core_dir(), &self.upstream, &db, &redis, env);
         let state = AppState::with_access_log(config, self.store.clone(), AccessLog::disabled())
             .expect("state");
         ferropost_api::app(state)
