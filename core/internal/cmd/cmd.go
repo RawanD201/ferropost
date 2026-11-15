@@ -143,6 +143,15 @@ var (
 				safepath = strings.TrimPrefix(safepath, "/")
 			}
 
+			// Internal mode: the Rust front server (core-rs) terminates TLS on the
+			// public ports, enforces the safe entrance and proxies here, so this
+			// process only listens on a private plain-HTTP address.
+			internalAddr := strings.TrimSpace(os.Getenv("BM_GO_INTERNAL_ADDR"))
+			if internalAddr != "" {
+				safepath = ""
+				g.Log().Info(ctx, "internal mode: serving behind core-rs on ", internalAddr)
+			}
+
 			// Start timers
 			err = timers.Start(ctx)
 
@@ -455,63 +464,10 @@ var (
 			// Generate self-signed certificate if not exists
 			public.SelfSignedCert().Generate()
 
-			// Enable HTTPS
-			defaultCrtPair, _ := tls.LoadX509KeyPair(public.AbsPath(consts.SSL_PATH, "cert.pem"), public.AbsPath(consts.SSL_PATH, "key.pem"))
-			crtMap := make(map[string]*tls.Certificate)
-			crtMapMutex := sync.RWMutex{}
-			s.EnableHTTPS(public.AbsPath(consts.SSL_PATH, "cert.pem"), public.AbsPath(consts.SSL_PATH, "key.pem"), &tls.Config{
-				GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
-					domain := info.ServerName
-
-					crtMapMutex.RLock()
-					if crtPair, ok := crtMap[domain]; ok {
-						crtMapMutex.RUnlock()
-						return crtPair, nil
-					}
-					crtMapMutex.RUnlock()
-
-					if exists, _ := g.DB().Model("domain").Where("a_record", public.FormatMX(domain)).Exist(); !exists {
-						return &defaultCrtPair, nil
-					}
-
-					g.Log().Debug(ctx, "Get TLS certificate for domain", domain)
-
-					crtMapMutex.Lock()
-					defer crtMapMutex.Unlock()
-
-					if crt, ok := crtMap[domain]; ok {
-						return crt, nil
-					}
-
-					crtPath := public.AbsPath(consts.SSL_PATH, public.FormatMX(domain), "fullchain.pem")
-					keyPath := public.AbsPath(consts.SSL_PATH, public.FormatMX(domain), "privkey.pem")
-
-					if !public.FileExists(crtPath) || !public.FileExists(keyPath) {
-						return &defaultCrtPair, nil
-					}
-
-					crtPair, err := tls.LoadX509KeyPair(crtPath, keyPath)
-
-					if err != nil {
-						g.Log().Warning(ctx, "Failed to load TLS certificate for domain", domain, err)
-						return &defaultCrtPair, nil
-					}
-
-					crtMap[domain] = &crtPair
-
-					return &crtPair, nil
-				},
-			})
-
-			// attempt add http port
-			if httpPort, err := public.DockerEnv("HTTP_PORT"); err == nil && httpPort != "" {
-				s.SetPort(gconv.Int(httpPort))
-			}
-
-			// Set HTTPS ports
-			s.SetHTTPSPort(g.Cfg().MustGet(ctx, "server.httpsPort", 443).Int())
-			if httpsPort, err := public.DockerEnv("HTTPS_PORT"); err == nil && httpsPort != "" {
-				s.SetHTTPSPort(gconv.Int(httpsPort))
+			if internalAddr != "" {
+				s.SetAddr(internalAddr)
+			} else {
+				enablePublicListeners(ctx, s)
 			}
 
 			var apiDocEnabled bool
@@ -543,3 +499,66 @@ var (
 		},
 	}
 )
+
+// enablePublicListeners serves HTTPS (with per-domain certificates chosen by
+// SNI) and HTTP on the public console ports. It is skipped in internal mode,
+// where core-rs owns those ports.
+func enablePublicListeners(ctx context.Context, s *ghttp.Server) {
+	defaultCrtPair, _ := tls.LoadX509KeyPair(public.AbsPath(consts.SSL_PATH, "cert.pem"), public.AbsPath(consts.SSL_PATH, "key.pem"))
+	crtMap := make(map[string]*tls.Certificate)
+	crtMapMutex := sync.RWMutex{}
+	s.EnableHTTPS(public.AbsPath(consts.SSL_PATH, "cert.pem"), public.AbsPath(consts.SSL_PATH, "key.pem"), &tls.Config{
+		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			domain := info.ServerName
+
+			crtMapMutex.RLock()
+			if crtPair, ok := crtMap[domain]; ok {
+				crtMapMutex.RUnlock()
+				return crtPair, nil
+			}
+			crtMapMutex.RUnlock()
+
+			if exists, _ := g.DB().Model("domain").Where("a_record", public.FormatMX(domain)).Exist(); !exists {
+				return &defaultCrtPair, nil
+			}
+
+			g.Log().Debug(ctx, "Get TLS certificate for domain", domain)
+
+			crtMapMutex.Lock()
+			defer crtMapMutex.Unlock()
+
+			if crt, ok := crtMap[domain]; ok {
+				return crt, nil
+			}
+
+			crtPath := public.AbsPath(consts.SSL_PATH, public.FormatMX(domain), "fullchain.pem")
+			keyPath := public.AbsPath(consts.SSL_PATH, public.FormatMX(domain), "privkey.pem")
+
+			if !public.FileExists(crtPath) || !public.FileExists(keyPath) {
+				return &defaultCrtPair, nil
+			}
+
+			crtPair, err := tls.LoadX509KeyPair(crtPath, keyPath)
+
+			if err != nil {
+				g.Log().Warning(ctx, "Failed to load TLS certificate for domain", domain, err)
+				return &defaultCrtPair, nil
+			}
+
+			crtMap[domain] = &crtPair
+
+			return &crtPair, nil
+		},
+	})
+
+	// attempt add http port
+	if httpPort, err := public.DockerEnv("HTTP_PORT"); err == nil && httpPort != "" {
+		s.SetPort(gconv.Int(httpPort))
+	}
+
+	// Set HTTPS ports
+	s.SetHTTPSPort(g.Cfg().MustGet(ctx, "server.httpsPort", 443).Int())
+	if httpsPort, err := public.DockerEnv("HTTPS_PORT"); err == nil && httpsPort != "" {
+		s.SetHTTPSPort(gconv.Int(httpsPort))
+	}
+}

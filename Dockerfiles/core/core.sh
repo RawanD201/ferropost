@@ -75,6 +75,7 @@ fi
 
 cd /opt/billionmail/core/
 chmod +x billionmail
+[ -f billionmail-rs ] && chmod +x billionmail-rs
 
 
 exec "$@"

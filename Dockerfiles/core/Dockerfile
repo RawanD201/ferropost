@@ -10,6 +10,8 @@ ENV LC_ALL=C.UTF-8
 # Platform-specific binary copy
 ARG TARGETARCH
 COPY core/billionmail-${TARGETARCH} /opt/billionmail/core/billionmail
+# Rust front server, built by core-rs/build.sh
+COPY core/billionmail-rs-${TARGETARCH} /opt/billionmail/core/billionmail-rs
 COPY core/manifest /opt/billionmail/core/manifest
 COPY core/languages /opt/billionmail/core/languages
 COPY core/public /opt/billionmail/core/public
@@ -36,7 +38,7 @@ RUN apk add --no-cache \
     iptables \
     ipset \
     && rm -rf /var/cache/apk/* \
-    && chmod +x /stop-supervisor.sh /core.sh /restart_fail2ban.sh /opt/billionmail/core/billionmail
+    && chmod +x /stop-supervisor.sh /core.sh /restart_fail2ban.sh /opt/billionmail/core/billionmail /opt/billionmail/core/billionmail-rs
 
 # Copy file
 

@@ -1,0 +1,23 @@
+[package]
+name = "bm-common"
+description = "Configuration, .env access and i18n shared by every BillionMail crate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bm-domain.workspace = true
+hex.workspace = true
+ipnet.workspace = true
+md-5.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

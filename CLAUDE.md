@@ -26,6 +26,12 @@ core/
 │   └── i18n/           # Internationalization (en, zh, ja)
 ├── template/           # Email templates
 └── manifest/           # Config/deployment
+core-rs/                # Rust core replacing core/ domain by domain (see core-rs/README.md)
+├── crates/domain/      # Pure types and rules, no IO
+├── crates/common/      # Config, shared .env reader, i18n
+├── crates/store/       # Postgres (sqlx) + Redis (fred) queries on the Go schema
+├── crates/api/         # axum: edge policies, auth/RBAC, native routes, proxy to Go
+└── crates/server/      # billionmail-rs binary: listeners, TLS/SNI
 conf/                   # Mail service configs (postfix, dovecot, rspamd, redis)
 Dockerfiles/            # Container definitions
 ```
@@ -33,6 +39,7 @@ Dockerfiles/            # Container definitions
 ## Stack
 
 - **Backend:** Go 1.22, GoFrame v2, PostgreSQL, Redis
+- **Backend (migration in progress):** Rust (edition 2024), axum, sqlx, fred. `billionmail-rs` owns the public ports and proxies unported routes to Go running with `BM_GO_INTERNAL_ADDR`
 - **Frontend:** Vue 3, TypeScript, Pinia, Naive UI, Vitest, pnpm
 - **Mail:** Postfix, Dovecot, Rspamd
 - **Deploy:** Docker Compose
@@ -56,6 +63,9 @@ cd core && go vet ./... && gofmt -l .
 
 # Frontend
 cd core/frontend && pnpm run lint
+
+# Rust
+cd core-rs && cargo fmt --check && cargo clippy --all-targets
 ```
 
 Fix ALL errors before continuing.
@@ -69,6 +79,9 @@ cd core && go test -count=1 -short ./internal/service/...
 # Frontend
 cd core/frontend && pnpm test
 
+# Rust (unit; e2e needs BM_TEST_DATABASE_URL/BM_TEST_REDIS_URL, see core-rs/README.md)
+cd core-rs && cargo test
+
 # Both
 cd core && go test -count=1 -short ./internal/service/... && cd frontend && pnpm test
 ```
@@ -76,7 +89,9 @@ cd core && go test -count=1 -short ./internal/service/... && cd frontend && pnpm
 ## Bug Memory Rules
 
 - NEVER use bare domain for mail infrastructure (DNS, certs, DKIM, dedicated IPs). Always use `public.FormatMX(domain)` to get the mail hostname (e.g., `mail.example.com`).
-- When adding new controllers, add the module name to the RBAC `modules` list in `core/internal/service/middlewares/rbac.go`.
+- When adding new controllers, add the module name to the RBAC `modules` list in `core/internal/service/middlewares/rbac.go` (and `MODULES` in `core-rs/crates/domain/src/rbac.rs`).
+- Rust mail infrastructure: resolve hostnames with `bm_store::domains::mail_hostname` (DB `a_record`, then `bm_domain::mail::mx_hostname_fallback`), never the bare domain.
+- When porting a route to Rust, register every HTTP method Go serves on that path, keep the `{success, code, msg, data}` envelope (errors on HTTP 200), and move the domain's timers out of Go in the same change.
 
 ## Commands
 

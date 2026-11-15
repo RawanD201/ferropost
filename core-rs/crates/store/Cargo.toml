@@ -1,0 +1,20 @@
+[package]
+name = "bm-store"
+description = "PostgreSQL and Redis access for BillionMail"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bm-common.workspace = true
+bm-domain = { workspace = true, features = ["sqlx"] }
+fred.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
