@@ -1,4 +1,4 @@
-//! HTTP layer of BillionMail.
+//! HTTP layer of Ferropost.
 //!
 //! Every request passes through [`edge::edge`] (client IP, base path, IP
 //! whitelist, safe entrance, access log). Routes already ported to Rust are

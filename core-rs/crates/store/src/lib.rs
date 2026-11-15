@@ -14,7 +14,7 @@ pub mod whitelist;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bm_common::Config;
+use ferropost_common::Config;
 use fred::prelude::{Builder, ClientLike, Config as RedisClientConfig, Server, ServerConfig};
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 
@@ -44,14 +44,14 @@ async fn connect_pg(cfg: &Config) -> Result<PgPool> {
     let options = match &db.url {
         Some(url) => url
             .parse::<PgConnectOptions>()
-            .context("parse BM_DATABASE_URL")?,
+            .context("parse FERROPOST_DATABASE_URL")?,
         None => PgConnectOptions::new()
             .socket(&db.socket_dir)
             .username(&db.user)
             .password(&db.password)
             .database(&db.name),
     }
-    .application_name("billionmail-rs");
+    .application_name("ferropost");
 
     let pool = PgPoolOptions::new()
         .max_connections(db.max_connections)
@@ -69,7 +69,7 @@ async fn connect_pg(cfg: &Config) -> Result<PgPool> {
 async fn connect_redis(cfg: &Config) -> Result<RedisClient> {
     let r = &cfg.redis;
     let config = match &r.url {
-        Some(url) => RedisClientConfig::from_url(url).context("parse BM_REDIS_URL")?,
+        Some(url) => RedisClientConfig::from_url(url).context("parse FERROPOST_REDIS_URL")?,
         None => RedisClientConfig {
             server: ServerConfig::Centralized {
                 server: Server::new(r.host.clone(), r.port),

@@ -2,7 +2,7 @@
 //! `permission`).
 
 use anyhow::Result;
-use bm_domain::rbac::RouteInfo;
+use ferropost_domain::rbac::RouteInfo;
 use sqlx::PgPool;
 
 /// Names of the roles assigned to an account.

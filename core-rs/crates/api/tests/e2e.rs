@@ -1,7 +1,7 @@
 //! End-to-end test of the HTTP layer against real PostgreSQL and Redis and a
 //! fake Go upstream.
 //!
-//! Runs only when `BM_TEST_DATABASE_URL` and `BM_TEST_REDIS_URL` are set
+//! Runs only when `FERROPOST_TEST_DATABASE_URL` and `FERROPOST_TEST_REDIS_URL` are set
 //! (see `core-rs/README.md`). The database is reset on every run.
 
 use std::collections::HashMap;
@@ -14,10 +14,10 @@ use axum::body::Body;
 use axum::extract::Request;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use bm_api::access_log::AccessLog;
-use bm_api::{AppState, ConnInfo};
-use bm_common::{Config, EnvFile};
-use bm_store::Store;
+use ferropost_api::access_log::AccessLog;
+use ferropost_api::{AppState, ConnInfo};
+use ferropost_common::{Config, EnvFile};
+use ferropost_store::Store;
 use fred::prelude::{ClientLike, KeysInterface};
 use http_body_util::BodyExt;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
@@ -37,10 +37,12 @@ struct Harness {
 impl Harness {
     async fn start() -> Option<Self> {
         let (Ok(db), Ok(redis)) = (
-            std::env::var("BM_TEST_DATABASE_URL"),
-            std::env::var("BM_TEST_REDIS_URL"),
+            std::env::var("FERROPOST_TEST_DATABASE_URL"),
+            std::env::var("FERROPOST_TEST_REDIS_URL"),
         ) else {
-            eprintln!("skipping e2e: BM_TEST_DATABASE_URL / BM_TEST_REDIS_URL not set");
+            eprintln!(
+                "skipping e2e: FERROPOST_TEST_DATABASE_URL / FERROPOST_TEST_REDIS_URL not set"
+            );
             return None;
         };
 
@@ -58,12 +60,12 @@ impl Harness {
 
     /// A fresh app (fresh caches) with extra `.env` values.
     fn app(&self, env: &[(&str, &str)]) -> Router {
-        let db = std::env::var("BM_TEST_DATABASE_URL").expect("db url");
-        let redis = std::env::var("BM_TEST_REDIS_URL").expect("redis url");
+        let db = std::env::var("FERROPOST_TEST_DATABASE_URL").expect("db url");
+        let redis = std::env::var("FERROPOST_TEST_REDIS_URL").expect("redis url");
         let config = config(self.root.path(), &self.upstream, &db, &redis, env);
         let state = AppState::with_access_log(config, self.store.clone(), AccessLog::disabled())
             .expect("state");
-        bm_api::app(state)
+        ferropost_api::app(state)
     }
 }
 
@@ -74,10 +76,10 @@ fn config(root: &Path, upstream: &str, db: &str, redis: &str, extra: &[(&str, &s
     ]);
     env.extend(extra.iter().map(|(k, v)| ((*k).into(), (*v).into())));
     let vars: HashMap<&str, String> = HashMap::from([
-        ("BM_DATABASE_URL", db.to_owned()),
-        ("BM_REDIS_URL", redis.to_owned()),
-        ("BM_GO_UPSTREAM", upstream.to_owned()),
-        ("BM_SERVER_IP", "198.51.100.1".to_owned()),
+        ("FERROPOST_DATABASE_URL", db.to_owned()),
+        ("FERROPOST_REDIS_URL", redis.to_owned()),
+        ("FERROPOST_GO_UPSTREAM", upstream.to_owned()),
+        ("FERROPOST_SERVER_IP", "198.51.100.1".to_owned()),
     ]);
     Config::from_sources(root.to_path_buf(), Arc::new(EnvFile::from_map(env)), |k| {
         vars.get(k).cloned()
@@ -492,11 +494,11 @@ async fn end_to_end() {
 
     // --- Go unavailable -------------------------------------------------
     let config = {
-        let db = std::env::var("BM_TEST_DATABASE_URL").expect("db");
-        let redis = std::env::var("BM_TEST_REDIS_URL").expect("redis");
+        let db = std::env::var("FERROPOST_TEST_DATABASE_URL").expect("db");
+        let redis = std::env::var("FERROPOST_TEST_REDIS_URL").expect("redis");
         config(h.root.path(), "http://127.0.0.1:9", &db, &redis, &[])
     };
-    let down = bm_api::app(
+    let down = ferropost_api::app(
         AppState::with_access_log(config, h.store.clone(), AccessLog::disabled()).expect("state"),
     );
     let r = call(

@@ -1,6 +1,6 @@
 [package]
-name = "bm-common"
-description = "Configuration, .env access and i18n shared by every BillionMail crate"
+name = "ferropost-common"
+description = "Configuration, .env access and i18n shared by every Ferropost crate"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bm-domain.workspace = true
+ferropost-domain.workspace = true
 hex.workspace = true
 ipnet.workspace = true
 md-5.workspace = true

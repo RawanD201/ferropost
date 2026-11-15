@@ -1,6 +1,6 @@
 [package]
-name = "bm-api"
-description = "HTTP layer of BillionMail: edge policies, auth, native routes and the Go fallback proxy"
+name = "ferropost-api"
+description = "HTTP layer of Ferropost: edge policies, auth, native routes and the Go fallback proxy"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,9 +10,9 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-bm-common.workspace = true
-bm-domain.workspace = true
-bm-store.workspace = true
+ferropost-common.workspace = true
+ferropost-domain.workspace = true
+ferropost-store.workspace = true
 chrono.workspace = true
 hex.workspace = true
 hmac.workspace = true

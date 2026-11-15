@@ -1,8 +1,8 @@
 //! Contact tags (`bm_tags`).
 
 use anyhow::Result;
-use bm_domain::paging::{Page, PageRequest};
-use bm_domain::tags::Tag;
+use ferropost_domain::paging::{Page, PageRequest};
+use ferropost_domain::tags::Tag;
 use sqlx::PgPool;
 
 use crate::like_contains;

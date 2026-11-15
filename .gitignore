@@ -36,6 +36,7 @@ ssl-self-signed/cert.pem
 ssl-self-signed/key.pem
 core/billionmail*
 core-rs/target/
+core/ferropost-*
 
 # Claude Code
 .claude/

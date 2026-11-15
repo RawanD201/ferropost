@@ -10,10 +10,10 @@ license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
-bm-common = { path = "crates/common" }
-bm-domain = { path = "crates/domain" }
-bm-store = { path = "crates/store" }
-bm-api = { path = "crates/api" }
+ferropost-common = { path = "crates/common" }
+ferropost-domain = { path = "crates/domain" }
+ferropost-store = { path = "crates/store" }
+ferropost-api = { path = "crates/api" }
 
 anyhow = "1"
 thiserror = "2"

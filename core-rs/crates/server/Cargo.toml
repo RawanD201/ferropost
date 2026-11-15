@@ -1,6 +1,6 @@
 [package]
-name = "bm-server"
-description = "BillionMail front server: TLS termination, native routes, Go fallback"
+name = "ferropost-server"
+description = "Ferropost front server: TLS termination, native routes, Go fallback"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,16 +8,16 @@ license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "billionmail-rs"
+name = "ferropost"
 path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-bm-api.workspace = true
-bm-common.workspace = true
-bm-domain.workspace = true
-bm-store.workspace = true
+ferropost-api.workspace = true
+ferropost-common.workspace = true
+ferropost-domain.workspace = true
+ferropost-store.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 moka.workspace = true

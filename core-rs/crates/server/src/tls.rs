@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bm_domain::mail::is_safe_hostname;
+use ferropost_domain::mail::is_safe_hostname;
 use moka::future::Cache;
 use rustls::ServerConfig;
 use rustls::crypto::ring;
@@ -71,7 +71,7 @@ impl CertStore {
     }
 
     async fn load_for_host(&self, sni: String) -> Result<Option<Arc<ServerConfig>>> {
-        let Some(host) = bm_store::domains::mail_hostname(&self.pg, &sni).await? else {
+        let Some(host) = ferropost_store::domains::mail_hostname(&self.pg, &sni).await? else {
             return Ok(None);
         };
         if !is_safe_hostname(&host) {

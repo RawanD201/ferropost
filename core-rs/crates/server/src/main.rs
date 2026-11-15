@@ -1,4 +1,4 @@
-//! `billionmail-rs`: the BillionMail front server.
+//! `ferropost`: the Ferropost front server.
 //!
 //! Terminates HTTP/HTTPS on the console ports, serves ported routes natively
 //! and proxies everything else to the Go core running in internal mode.
@@ -11,9 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use bm_api::AppState;
-use bm_common::Config;
-use bm_store::Store;
+use ferropost_api::AppState;
+use ferropost_common::Config;
+use ferropost_store::Store;
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
@@ -22,7 +22,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(15);
 
 fn main() -> ExitCode {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
-        println!("billionmail-rs {}", env!("CARGO_PKG_VERSION"));
+        println!("ferropost {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
 
@@ -59,7 +59,7 @@ async fn run() -> Result<()> {
         upstream = %config.go_upstream,
         http_port = config.http_port,
         https_port = config.https_port,
-        "starting billionmail-rs"
+        "starting ferropost"
     );
 
     let store = Store::connect(&config).await?;
@@ -67,7 +67,7 @@ async fn run() -> Result<()> {
         config.ssl_dir.clone(),
         store.pg.clone(),
     )?);
-    let app = bm_api::app(AppState::new(config.clone(), store)?);
+    let app = ferropost_api::app(AppState::new(config.clone(), store)?);
 
     let http = listener::bind(config.http_port).await?;
     let https = listener::bind(config.https_port).await?;

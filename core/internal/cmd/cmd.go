@@ -143,10 +143,10 @@ var (
 				safepath = strings.TrimPrefix(safepath, "/")
 			}
 
-			// Internal mode: the Rust front server (core-rs) terminates TLS on the
+			// Internal mode: the Rust front server (ferropost) terminates TLS on the
 			// public ports, enforces the safe entrance and proxies here, so this
 			// process only listens on a private plain-HTTP address.
-			internalAddr := strings.TrimSpace(os.Getenv("BM_GO_INTERNAL_ADDR"))
+			internalAddr := strings.TrimSpace(os.Getenv("FERROPOST_GO_INTERNAL_ADDR"))
 			if internalAddr != "" {
 				safepath = ""
 				g.Log().Info(ctx, "internal mode: serving behind core-rs on ", internalAddr)
@@ -502,7 +502,7 @@ var (
 
 // enablePublicListeners serves HTTPS (with per-domain certificates chosen by
 // SNI) and HTTP on the public console ports. It is skipped in internal mode,
-// where core-rs owns those ports.
+// where ferropost owns those ports.
 func enablePublicListeners(ctx context.Context, s *ghttp.Server) {
 	defaultCrtPair, _ := tls.LoadX509KeyPair(public.AbsPath(consts.SSL_PATH, "cert.pem"), public.AbsPath(consts.SSL_PATH, "key.pem"))
 	crtMap := make(map[string]*tls.Certificate)

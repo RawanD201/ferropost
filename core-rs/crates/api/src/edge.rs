@@ -17,7 +17,7 @@ use axum::http::header::{COOKIE, HOST, LOCATION, REFERER, SET_COOKIE, USER_AGENT
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use bm_domain::web;
+use ferropost_domain::web;
 use hmac::{Hmac, Mac};
 use ipnet::IpNet;
 use sha2::Sha256;
@@ -31,8 +31,8 @@ use crate::state::AppState;
 
 /// Liveness endpoint, answered only to loopback peers (container health
 /// checks) and never logged.
-pub const HEALTH_PATH: &str = "/__bm/health";
-pub const ENTRANCE_COOKIE: &str = "bm_entrance";
+pub const HEALTH_PATH: &str = "/__ferropost/health";
+pub const ENTRANCE_COOKIE: &str = "ferropost_entrance";
 /// Go's session lifetime for the same purpose.
 const ENTRANCE_TTL_SECS: i64 = 30 * 24 * 3600;
 
@@ -184,7 +184,7 @@ async fn ip_allowed(state: &AppState, ip: IpAddr) -> bool {
         .caches
         .whitelist
         .try_get_with((), async move {
-            let raw = bm_store::whitelist::entries(&pg).await?;
+            let raw = ferropost_store::whitelist::entries(&pg).await?;
             Ok::<_, anyhow::Error>(Arc::new(raw.iter().filter_map(|s| parse_net(s)).collect()))
         })
         .await;
@@ -261,7 +261,7 @@ async fn is_static_file(root: &Path, path: &str) -> bool {
 pub fn derive_entrance_key(secret: &str) -> [u8; 32] {
     let mut mac =
         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"billionmail/safe-entrance/v1");
+    mac.update(b"ferropost/safe-entrance/v1");
     mac.finalize().into_bytes().into()
 }
 
@@ -361,7 +361,7 @@ mod tests {
             "extended expiry"
         );
         assert!(!has_entrance(
-            &cookie_headers("bm_entrance=garbage"),
+            &cookie_headers("ferropost_entrance=garbage"),
             &KEY,
             "abc",
             1_000

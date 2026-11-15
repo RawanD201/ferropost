@@ -8,7 +8,7 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::Response;
-use bm_domain::rbac::ADMIN_ROLE;
+use ferropost_domain::rbac::ADMIN_ROLE;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 
@@ -112,7 +112,7 @@ pub async fn require_auth(
     // when Redis failed; here an unavailable Redis rejects the request.
     if claims.exp.is_some() {
         let jti = claims.jti.as_deref().unwrap_or_default();
-        let revoked = bm_store::tokens::is_revoked(&state.store.redis, jti)
+        let revoked = ferropost_store::tokens::is_revoked(&state.store.redis, jti)
             .await
             .map_err(|e| ApiError::Unavailable(format!("redis: {e:#}")))?;
         if revoked {
@@ -124,7 +124,7 @@ pub async fn require_auth(
         .caches
         .roles
         .try_get_with(claims.account_id, async {
-            bm_store::rbac::account_role_names(&state.store.pg, claims.account_id)
+            ferropost_store::rbac::account_role_names(&state.store.pg, claims.account_id)
                 .await
                 .map(Arc::<[String]>::from)
         })

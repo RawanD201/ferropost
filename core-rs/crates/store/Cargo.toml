@@ -1,6 +1,6 @@
 [package]
-name = "bm-store"
-description = "PostgreSQL and Redis access for BillionMail"
+name = "ferropost-store"
+description = "PostgreSQL and Redis access for Ferropost"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,8 +9,8 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bm-common.workspace = true
-bm-domain = { workspace = true, features = ["sqlx"] }
+ferropost-common.workspace = true
+ferropost-domain = { workspace = true, features = ["sqlx"] }
 fred.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

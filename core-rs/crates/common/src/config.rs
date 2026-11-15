@@ -2,7 +2,7 @@
 //!
 //! Values shared with the rest of the stack (passwords, ports, SafePath, ...)
 //! come from the BillionMail `.env` file. Settings specific to the Rust service
-//! use `BM_*` process environment variables so they never clash with Go.
+//! use `FERROPOST_*` process environment variables so they never clash with Go.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -32,7 +32,7 @@ pub struct Config {
     /// Peers allowed to set `X-Forwarded-For`. Empty means nobody, so the
     /// client IP is always the TCP peer.
     pub trusted_proxies: Vec<IpNet>,
-    /// The server's public address (`BM_SERVER_IP`), always allowed through
+    /// The server's public address (`FERROPOST_SERVER_IP`), always allowed through
     /// the IP whitelist. When unset it is looked up online, as Go did.
     pub server_ip: Option<IpAddr>,
     pub jwt_secret: String,
@@ -41,7 +41,7 @@ pub struct Config {
 
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
-    /// Full URL override (`BM_DATABASE_URL`), mainly for development.
+    /// Full URL override (`FERROPOST_DATABASE_URL`), mainly for development.
     pub url: Option<String>,
     pub socket_dir: PathBuf,
     pub user: String,
@@ -52,7 +52,7 @@ pub struct DatabaseConfig {
 
 #[derive(Debug, Clone)]
 pub struct RedisConfig {
-    /// Full URL override (`BM_REDIS_URL`), mainly for development.
+    /// Full URL override (`FERROPOST_REDIS_URL`), mainly for development.
     pub url: Option<String>,
     pub host: String,
     pub port: u16,
@@ -63,11 +63,11 @@ pub struct RedisConfig {
 impl Config {
     /// Loads configuration from the process environment and the `.env` file.
     pub fn load() -> Result<Self> {
-        let root = match std::env::var_os("BM_ROOT") {
+        let root = match std::env::var_os("FERROPOST_ROOT") {
             Some(dir) => PathBuf::from(dir),
             None => std::env::current_dir().context("resolve current directory")?,
         };
-        let env_path = std::env::var_os("BM_ENV_FILE")
+        let env_path = std::env::var_os("FERROPOST_ENV_FILE")
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("../.env"));
         Self::from_sources(root, Arc::new(EnvFile::load(env_path)), |key| {
@@ -88,7 +88,7 @@ impl Config {
         let db_password = env.get("DBPASS").unwrap_or_default();
         let redis_password = env.get("REDISPASS");
 
-        let jwt_secret = match var("BM_JWT_SECRET") {
+        let jwt_secret = match var("FERROPOST_JWT_SECRET") {
             Some(secret) => secret,
             // Same derivation as Go's newJWTService so tokens stay valid
             // across both servers.
@@ -98,7 +98,7 @@ impl Config {
             ),
         };
         if jwt_secret.is_empty() {
-            bail!("no JWT secret: set DBPASS/REDISPASS in .env or BM_JWT_SECRET");
+            bail!("no JWT secret: set DBPASS/REDISPASS in .env or FERROPOST_JWT_SECRET");
         }
 
         let (redis_host, redis_port) = if in_container {
@@ -108,34 +108,41 @@ impl Config {
         };
 
         Ok(Self {
-            go_upstream: var("BM_GO_UPSTREAM").unwrap_or_else(|| DEFAULT_GO_UPSTREAM.to_owned()),
+            go_upstream: var("FERROPOST_GO_UPSTREAM")
+                .unwrap_or_else(|| DEFAULT_GO_UPSTREAM.to_owned()),
             database: DatabaseConfig {
-                url: var("BM_DATABASE_URL"),
+                url: var("FERROPOST_DATABASE_URL"),
                 socket_dir: root.join("../postgresql-socket"),
                 user: "billionmail".to_owned(),
                 name: "billionmail".to_owned(),
                 password: db_password,
-                max_connections: parse_or(var("BM_DB_MAX_CONNECTIONS"), 20)?,
+                max_connections: parse_or(var("FERROPOST_DB_MAX_CONNECTIONS"), 20)?,
             },
             redis: RedisConfig {
-                url: var("BM_REDIS_URL"),
+                url: var("FERROPOST_REDIS_URL"),
                 host: redis_host,
                 port: redis_port,
                 password: redis_password,
                 db: parse_or(env.get("REDISDB"), 1)?,
             },
-            ssl_dir: var("BM_SSL_DIR")
+            ssl_dir: var("FERROPOST_SSL_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("/etc/ssl/mail")),
-            http_port: parse_or(var("BM_HTTP_PORT").or_else(|| env.get("HTTP_PORT")), 80)?,
-            https_port: parse_or(var("BM_HTTPS_PORT").or_else(|| env.get("HTTPS_PORT")), 443)?,
-            trusted_proxies: parse_trusted_proxies(var("BM_TRUSTED_PROXIES").as_deref())?,
-            server_ip: var("BM_SERVER_IP")
+            http_port: parse_or(
+                var("FERROPOST_HTTP_PORT").or_else(|| env.get("HTTP_PORT")),
+                80,
+            )?,
+            https_port: parse_or(
+                var("FERROPOST_HTTPS_PORT").or_else(|| env.get("HTTPS_PORT")),
+                443,
+            )?,
+            trusted_proxies: parse_trusted_proxies(var("FERROPOST_TRUSTED_PROXIES").as_deref())?,
+            server_ip: var("FERROPOST_SERVER_IP")
                 .map(|ip| ip.trim().parse::<IpAddr>().map(|ip| ip.to_canonical()))
                 .transpose()
-                .context("invalid BM_SERVER_IP")?,
+                .context("invalid FERROPOST_SERVER_IP")?,
             jwt_secret,
-            access_log_dir: var("BM_ACCESS_LOG_DIR")
+            access_log_dir: var("FERROPOST_ACCESS_LOG_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("logs")),
             root,
@@ -149,7 +156,7 @@ impl Config {
         ["WEB_BASE_PATH", "PUBLIC_PATH"]
             .into_iter()
             .filter_map(|key| std::env::var(key).ok().or_else(|| self.env.get(key)))
-            .map(|value| bm_domain::web::normalize_base_path(&value))
+            .map(|value| ferropost_domain::web::normalize_base_path(&value))
             .find(|value| !value.is_empty())
             .unwrap_or_default()
     }
@@ -178,7 +185,7 @@ pub fn parse_trusted_proxies(value: Option<&str>) -> Result<Vec<IpNet>> {
         .map(|s| {
             s.parse::<IpNet>()
                 .or_else(|_| s.parse::<IpAddr>().map(IpNet::from))
-                .with_context(|| format!("invalid BM_TRUSTED_PROXIES entry {s:?}"))
+                .with_context(|| format!("invalid FERROPOST_TRUSTED_PROXIES entry {s:?}"))
         })
         .collect()
 }
@@ -222,9 +229,9 @@ mod tests {
     #[test]
     fn process_env_overrides() {
         let vars: HashMap<&str, &str> = HashMap::from([
-            ("BM_JWT_SECRET", "override"),
-            ("BM_HTTP_PORT", "8080"),
-            ("BM_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.1.1"),
+            ("FERROPOST_JWT_SECRET", "override"),
+            ("FERROPOST_HTTP_PORT", "8080"),
+            ("FERROPOST_TRUSTED_PROXIES", "10.0.0.0/8, 192.168.1.1"),
         ]);
         let cfg = Config::from_sources(
             PathBuf::from("/x"),

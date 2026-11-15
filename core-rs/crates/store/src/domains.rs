@@ -1,7 +1,7 @@
 //! Sending domains (`domain`).
 
 use anyhow::Result;
-use bm_domain::mail::mx_hostname_fallback;
+use ferropost_domain::mail::mx_hostname_fallback;
 use sqlx::PgPool;
 
 /// Resolves the configured mail hostname (`a_record`) for a domain or host

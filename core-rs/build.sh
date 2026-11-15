@@ -1,9 +1,9 @@
 #!/bin/sh
-# Builds static (musl) billionmail-rs binaries for the core image.
+# Builds static (musl) ferropost binaries for the core image.
 #
 # Usage: sh core-rs/build.sh [all|x86|arm]      (same arguments as core/go-build.sh)
 #
-# Output: core/billionmail-rs-amd64 and/or core/billionmail-rs-arm64, which
+# Output: core/ferropost-amd64 and/or core/ferropost-arm64, which
 # Dockerfiles/core/Dockerfile copies next to the Go binary.
 # Building arm64 on an x86 host needs QEMU binfmt (docker run --privileged
 # --rm tonistiigi/binfmt --install arm64).
@@ -23,13 +23,13 @@ case "$PLATFORMS" in
 esac
 
 for arch in $ARCHES; do
-  echo ">> building billionmail-rs for linux/$arch with $RUST_IMAGE"
+  echo ">> building ferropost for linux/$arch with $RUST_IMAGE"
   docker run --rm --platform "linux/$arch" \
     -v "$HERE":/src -w /src \
-    -v billionmail-rs-cargo-$arch:/usr/local/cargo/registry \
+    -v ferropost-cargo-$arch:/usr/local/cargo/registry \
     -e CARGO_TARGET_DIR="/src/target/docker-$arch" \
     "$RUST_IMAGE" \
-    sh -c 'apk add --no-cache musl-dev >/dev/null && cargo build --release --locked --bin billionmail-rs'
-  cp "$HERE/target/docker-$arch/release/billionmail-rs" "$OUT/billionmail-rs-$arch"
-  echo ">> $OUT/billionmail-rs-$arch"
+    sh -c 'apk add --no-cache musl-dev >/dev/null && cargo build --release --locked --bin ferropost'
+  cp "$HERE/target/docker-$arch/release/ferropost" "$OUT/ferropost-$arch"
+  echo ">> $OUT/ferropost-$arch"
 done

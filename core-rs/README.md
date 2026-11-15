@@ -1,13 +1,17 @@
-# core-rs: the Rust BillionMail core
+# Ferropost core (`core-rs`)
 
-`core-rs` is replacing the Go core (`../core`) one domain at a time. It is the
-public front door: it terminates HTTP/HTTPS on the console ports, serves the
-routes already ported to Rust, and proxies everything else to the Go core,
-which runs on a private address. The Vue frontend, the database schema and the
+Ferropost is an email marketing platform and mail server derived from
+[BillionMail](https://github.com/aaPanel/BillionMail) and licensed, like it,
+under AGPL-3.0. `core-rs` is the Rust core replacing the Go core (`../core`)
+one domain at a time.
+
+The `ferropost` binary is the public front door: it terminates HTTP/HTTPS on
+the console ports, serves the routes already ported to Rust, and proxies
+everything else to the Go core, which runs on a private address. The Vue frontend, the database schema and the
 API contract stay unchanged until the Go side is gone.
 
 ```
-browser ─► billionmail-rs :80/:443 ─┬─► native route (Rust)  ─► Postgres / Redis
+browser ─► ferropost :80/:443 ─┬─► native route (Rust)  ─► Postgres / Redis
                                     └─► fallback proxy ─► Go core 127.0.0.1:8181 (internal mode)
 ```
 
@@ -24,7 +28,7 @@ in Rust.
 | `crates/common` | `Config`, the shared `.env` reader, i18n (Go language packs). |
 | `crates/store` | Postgres (sqlx) and Redis (fred) queries against the Go schema. |
 | `crates/api` | axum app: edge, JWT auth, RBAC, response envelope, Go proxy, native routes. |
-| `crates/server` | `billionmail-rs` binary: listeners, TLS/SNI certificates, graceful shutdown. |
+| `crates/server` | `ferropost` binary: listeners, TLS/SNI certificates, graceful shutdown. |
 
 ## Ported so far
 
@@ -39,24 +43,24 @@ Everything else is served by Go through the proxy.
 Shared settings come from the BillionMail `.env` (`DBPASS`, `REDISPASS`,
 `REDISDB`, `HTTP_PORT`, `HTTPS_PORT`, `SafePath`, `IP_WHITELIST_ENABLE`,
 `WEB_BASE_PATH`). Changes to `.env` take effect within about 2 seconds,
-without a restart. Settings specific to Rust use `BM_*` process variables:
+without a restart. Settings specific to Rust use `FERROPOST_*` process variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BM_ROOT` | current dir | Core directory (`languages/`, `public/`, `logs/`) |
-| `BM_ENV_FILE` | `$BM_ROOT/../.env` | Shared env file |
-| `BM_GO_UPSTREAM` | `http://127.0.0.1:8181` | Go core in internal mode |
-| `BM_DATABASE_URL` | unix socket `../postgresql-socket` | Override for development |
-| `BM_REDIS_URL` | `redis:6379` (container) / `127.0.0.1:26379` | Override for development |
-| `BM_HTTP_PORT` / `BM_HTTPS_PORT` | `.env` values, then 80/443 | Listener ports |
-| `BM_SSL_DIR` | `/etc/ssl/mail` | Default and per-domain certificates |
-| `BM_TRUSTED_PROXIES` | none | CIDRs allowed to set `X-Forwarded-For` (e.g. a reverse proxy in front) |
-| `BM_SERVER_IP` | looked up online | Public IP always allowed by the whitelist |
-| `BM_JWT_SECRET` | `DBPASS`+`REDISPASS` | Must match Go's `jwt.secret` if that is set |
-| `BM_ACCESS_LOG_DIR` | `$BM_ROOT/logs` | fail2ban access log directory |
+| `FERROPOST_ROOT` | current dir | Core directory (`languages/`, `public/`, `logs/`) |
+| `FERROPOST_ENV_FILE` | `$FERROPOST_ROOT/../.env` | Shared env file |
+| `FERROPOST_GO_UPSTREAM` | `http://127.0.0.1:8181` | Go core in internal mode |
+| `FERROPOST_DATABASE_URL` | unix socket `../postgresql-socket` | Override for development |
+| `FERROPOST_REDIS_URL` | `redis:6379` (container) / `127.0.0.1:26379` | Override for development |
+| `FERROPOST_HTTP_PORT` / `FERROPOST_HTTPS_PORT` | `.env` values, then 80/443 | Listener ports |
+| `FERROPOST_SSL_DIR` | `/etc/ssl/mail` | Default and per-domain certificates |
+| `FERROPOST_TRUSTED_PROXIES` | none | CIDRs allowed to set `X-Forwarded-For` (e.g. a reverse proxy in front) |
+| `FERROPOST_SERVER_IP` | looked up online | Public IP always allowed by the whitelist |
+| `FERROPOST_JWT_SECRET` | `DBPASS`+`REDISPASS` | Must match Go's `jwt.secret` if that is set |
+| `FERROPOST_ACCESS_LOG_DIR` | `$FERROPOST_ROOT/logs` | fail2ban access log directory |
 | `RUST_LOG` | `info` | Log filter |
 
-The Go core enters internal mode when `BM_GO_INTERNAL_ADDR` is set. It then
+The Go core enters internal mode when `FERROPOST_GO_INTERNAL_ADDR` is set. It then
 listens on that address over plain HTTP and leaves TLS and the safe entrance
 to Rust. Unset, Go behaves exactly as before.
 
@@ -71,19 +75,19 @@ cargo test                                        # unit tests, no services need
 docker run -d --rm --name bmrs-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_USER=billionmail \
   -e POSTGRES_DB=billionmail -p 127.0.0.1:55432:5432 postgres:17-alpine
 docker run -d --rm --name bmrs-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine --requirepass test
-BM_TEST_DATABASE_URL=postgres://billionmail:test@127.0.0.1:55432/billionmail \
-BM_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test -p bm-api --test e2e
+FERROPOST_TEST_DATABASE_URL=postgres://billionmail:test@127.0.0.1:55432/billionmail \
+FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test -p ferropost-api --test e2e
 ```
 
 ## Build and deploy
 
 `sh core-rs/build.sh [all|x86|arm]` builds static musl binaries in Docker and
-writes `core/billionmail-rs-<arch>`, next to the Go binaries from
+writes `core/ferropost-<arch>`, next to the Go binaries from
 `core/go-build.sh`. The core image copies both. supervisord runs Go with
-`BM_GO_INTERNAL_ADDR=127.0.0.1:8181` and `billionmail-rs` on the public ports.
+`FERROPOST_GO_INTERNAL_ADDR=127.0.0.1:8181` and `ferropost` on the public ports.
 
 **Rollback:** remove the `environment=` line from `[program:core]` and the
-`[program:core-rs]` block in `Dockerfiles/core/supervisord.conf`. Go then
+`[program:ferropost]` block in `Dockerfiles/core/supervisord.conf`. Go then
 owns the ports again.
 
 ## Porting a domain
@@ -108,10 +112,10 @@ owns the ports again.
 These are security fixes that keep the frontend working unchanged:
 
 - **Client IP:** `X-Forwarded-For` and similar headers are ignored unless the
-  peer is in `BM_TRUSTED_PROXIES`. In Go any client could send
+  peer is in `FERROPOST_TRUSTED_PROXIES`. In Go any client could send
   `X-Forwarded-For: 127.0.0.1` and pass the IP whitelist. The proxy also
   overwrites these headers before Go sees them.
-- **Safe entrance:** a signed `bm_entrance` cookie bound to the current
+- **Safe entrance:** a signed `ferropost_entrance` cookie bound to the current
   SafePath replaces Go's session flag. Changing SafePath invalidates old
   cookies, and existing users visit the safe path once after the switch.
   `/pmta/` (open/click tracking), ACME challenges and `/landing/video` are now

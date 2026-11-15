@@ -6,9 +6,9 @@
 use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
-use bm_domain::paging::{Page, PageRequest};
-use bm_domain::tags::Tag;
-use bm_store::tags::TagFilter;
+use ferropost_domain::paging::{Page, PageRequest};
+use ferropost_domain::tags::Tag;
+use ferropost_store::tags::TagFilter;
 use serde::Deserialize;
 
 use crate::de::{ApiQuery, opt_i64, opt_string};
@@ -46,7 +46,7 @@ async fn list(
         group_id: group_filter(query.group_id)?,
     };
     let page = PageRequest::new(query.page.unwrap_or(1), query.page_size.unwrap_or(20));
-    let data = bm_store::tags::list(&state.store.pg, &filter, page).await?;
+    let data = ferropost_store::tags::list(&state.store.pg, &filter, page).await?;
     Ok(ApiResponse::ok(state.i18n.tr(&lang, LIST_OK, &[]), data))
 }
 
@@ -54,7 +54,7 @@ async fn all(
     State(state): State<AppState>,
     Lang(lang): Lang,
 ) -> Result<ApiResponse<Page<Tag>>, ApiError> {
-    let list = bm_store::tags::all(&state.store.pg).await?;
+    let list = ferropost_store::tags::all(&state.store.pg).await?;
     let data = Page {
         total: i64::try_from(list.len()).unwrap_or(i64::MAX),
         list,

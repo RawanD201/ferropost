@@ -210,99 +210,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bm-api"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "bm-common",
- "bm-domain",
- "bm-store",
- "chrono",
- "fred",
- "hex",
- "hmac",
- "http-body-util",
- "hyper",
- "hyper-util",
- "ipnet",
- "jsonwebtoken",
- "md-5",
- "moka",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "tempfile",
- "thiserror",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "bm-common"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bm-domain",
- "hex",
- "ipnet",
- "md-5",
- "serde_json",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "bm-domain"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sqlx",
-]
-
-[[package]]
-name = "bm-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "bm-api",
- "bm-common",
- "bm-domain",
- "bm-store",
- "hyper",
- "hyper-util",
- "moka",
- "rcgen",
- "rustls",
- "rustls-pki-types",
- "sqlx",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "bm-store"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bm-common",
- "bm-domain",
- "fred",
- "sqlx",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -601,6 +508,99 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
+name = "ferropost-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "ferropost-common",
+ "ferropost-domain",
+ "ferropost-store",
+ "fred",
+ "hex",
+ "hmac",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "ipnet",
+ "jsonwebtoken",
+ "md-5",
+ "moka",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "ferropost-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ferropost-domain",
+ "hex",
+ "ipnet",
+ "md-5",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "ferropost-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sqlx",
+]
+
+[[package]]
+name = "ferropost-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "ferropost-api",
+ "ferropost-common",
+ "ferropost-domain",
+ "ferropost-store",
+ "hyper",
+ "hyper-util",
+ "moka",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "ferropost-store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ferropost-common",
+ "ferropost-domain",
+ "fred",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "find-msvc-tools"

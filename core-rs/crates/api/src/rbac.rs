@@ -3,7 +3,7 @@
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
-use bm_domain::rbac::route_info;
+use ferropost_domain::rbac::route_info;
 
 use crate::auth::CurrentUser;
 use crate::envelope::ApiError;
@@ -40,7 +40,7 @@ pub async fn require_permission(
         .caches
         .permissions
         .try_get_with((user.account_id, route.clone()), async {
-            bm_store::rbac::has_permission(&state.store.pg, user.account_id, &route).await
+            ferropost_store::rbac::has_permission(&state.store.pg, user.account_id, &route).await
         })
         .await
         .map_err(|e| anyhow::anyhow!("permission check: {e:#}"))?;

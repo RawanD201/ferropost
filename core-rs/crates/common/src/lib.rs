@@ -1,4 +1,4 @@
-//! Configuration, `.env` access and i18n shared by every BillionMail crate.
+//! Configuration, `.env` access and i18n shared by every Ferropost crate.
 
 pub mod config;
 pub mod envfile;

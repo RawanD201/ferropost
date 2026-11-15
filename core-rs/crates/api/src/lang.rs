@@ -3,7 +3,7 @@
 use axum::extract::FromRequestParts;
 use axum::http::header::ACCEPT_LANGUAGE;
 use axum::http::request::Parts;
-use bm_common::i18n::{DEFAULT_LANGUAGE, normalize_language};
+use ferropost_common::i18n::{DEFAULT_LANGUAGE, normalize_language};
 
 use crate::state::AppState;
 
@@ -31,9 +31,12 @@ impl FromRequestParts<AppState> for Lang {
             .caches
             .default_language
             .try_get_with((), async {
-                bm_store::options::get(&state.store.pg, bm_store::options::CURRENT_LANGUAGE)
-                    .await
-                    .map(|v| v.as_deref().and_then(normalize_language))
+                ferropost_store::options::get(
+                    &state.store.pg,
+                    ferropost_store::options::CURRENT_LANGUAGE,
+                )
+                .await
+                .map(|v| v.as_deref().and_then(normalize_language))
             })
             .await
             .unwrap_or_else(|e| {
