@@ -1,5 +1,9 @@
 //! Open/click tracking tokens (`/pmta/<token>`).
 //!
+//! New links are signed: `v2.<base64url(json)>.<base64url(hmac)>`, with an
+//! HMAC-SHA256 (truncated to 128 bits) under a key derived from the server
+//! secret, so they cannot be forged.
+//!
 //! Go's "encryption" (`maillog_stat.Encrypt`) is AES-128-CBC with a random
 //! key and IV that are stored *inside* the token: key and IV bytes are
 //! interleaved, the first 16 interleaved bytes go before the ciphertext and
@@ -13,7 +17,9 @@ use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 use crate::contacts::is_valid_email;
 
@@ -50,6 +56,63 @@ pub enum TokenError {
 /// Campaign IDs above this are API sends, which have no contact group.
 pub const API_CAMPAIGN_FLOOR: i64 = 1_000_000_000;
 
+/// How a decoded token was authenticated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// HMAC-signed by this server.
+    Signed,
+    /// Go's format: anyone could have made it.
+    Legacy,
+}
+
+const SIGNED_PREFIX: &str = "v2.";
+const TAG_LEN: usize = 16;
+
+/// Key for signing tracking links, derived from the server secret.
+pub fn tracking_key(secret: &str) -> [u8; 32] {
+    let mut mac = <Hmac<Sha256>>::new_from_slice(secret.as_bytes()).expect("any key length");
+    mac.update(b"ferropost/tracking/v2");
+    mac.finalize().into_bytes().into()
+}
+
+fn tag(key: &[u8; 32], payload: &[u8]) -> Hmac<Sha256> {
+    let mut mac = <Hmac<Sha256>>::new_from_slice(key).expect("any key length");
+    mac.update(payload);
+    mac
+}
+
+/// Encodes a signed token.
+pub fn encode_signed(event: &TrackingEvent, key: &[u8; 32]) -> String {
+    let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(event).unwrap_or_default());
+    let sig = tag(key, payload.as_bytes()).finalize().into_bytes();
+    format!(
+        "{SIGNED_PREFIX}{payload}.{}",
+        URL_SAFE_NO_PAD.encode(&sig[..TAG_LEN])
+    )
+}
+
+/// Decodes a signed or legacy token and validates it.
+pub fn decode(token: &str, key: &[u8; 32]) -> Result<(TrackingEvent, Origin), TokenError> {
+    let Some(rest) = token.strip_prefix(SIGNED_PREFIX) else {
+        return decode_legacy(token).map(|e| (e, Origin::Legacy));
+    };
+    let (payload, sig) = rest.split_once('.').ok_or(TokenError::Malformed)?;
+    let sig = URL_SAFE_NO_PAD
+        .decode(sig)
+        .map_err(|_| TokenError::Malformed)?;
+    if sig.len() != TAG_LEN {
+        return Err(TokenError::Malformed);
+    }
+    tag(key, payload.as_bytes())
+        .verify_truncated_left(&sig)
+        .map_err(|_| TokenError::Malformed)?;
+    let json = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| TokenError::Malformed)?;
+    let event: TrackingEvent = serde_json::from_slice(&json).map_err(|_| TokenError::Invalid)?;
+    validate(event).map(|e| (e, Origin::Signed))
+}
+
 /// Decodes a legacy token and validates its fields with Go's rules, plus:
 /// click URLs must be `http`/`https` (Go accepted any URL, so a token could
 /// redirect to `javascript:` or `data:`), and `user+tag@` recipients are
@@ -73,7 +136,10 @@ pub fn decode_legacy(token: &str) -> Result<TrackingEvent, TokenError> {
         .map_err(|_| TokenError::Malformed)?;
     let event: TrackingEvent =
         serde_json::from_slice(&plaintext).map_err(|_| TokenError::Invalid)?;
+    validate(event)
+}
 
+fn validate(event: TrackingEvent) -> Result<TrackingEvent, TokenError> {
     let url_ok = match event.kind {
         EventKind::Open => event.url.is_empty() || is_web_url(&event.url),
         EventKind::Click => is_web_url(&event.url),
@@ -192,6 +258,37 @@ mod tests {
         let mut bad = click("https://example.com");
         bad.campaign_id = 0;
         assert_eq!(decode_legacy(&token(&bad)), Err(TokenError::Invalid));
+    }
+
+    #[test]
+    fn signed_tokens() {
+        let key = tracking_key("secret");
+        let event = click("https://example.com/sale");
+        let token = encode_signed(&event, &key);
+        assert!(token.starts_with("v2."));
+        assert_eq!(decode(&token, &key), Ok((event.clone(), Origin::Signed)));
+
+        // Tampering with the payload or using another key fails.
+        let (payload, sig) = token["v2.".len()..].split_once('.').expect("parts");
+        let mut forged = click("https://evil.example");
+        forged.message_id = event.message_id.clone();
+        let forged_payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&forged).expect("json"));
+        assert_eq!(
+            decode(&format!("v2.{forged_payload}.{sig}"), &key),
+            Err(TokenError::Malformed)
+        );
+        assert_eq!(
+            decode(&token, &tracking_key("other")),
+            Err(TokenError::Malformed)
+        );
+        assert_eq!(
+            decode(&format!("v2.{payload}"), &key),
+            Err(TokenError::Malformed)
+        );
+
+        // Legacy tokens still decode, marked as such.
+        let legacy = encode_legacy(&event, [1; 16], [2; 16]);
+        assert_eq!(decode(&legacy, &key), Ok((event, Origin::Legacy)));
     }
 
     #[test]

@@ -15,6 +15,7 @@ ferropost-domain = { path = "crates/domain" }
 ferropost-store = { path = "crates/store" }
 ferropost-api = { path = "crates/api" }
 ferropost-jobs = { path = "crates/jobs" }
+ferropost-sender = { path = "crates/sender" }
 
 anyhow = "1"
 thiserror = "2"
@@ -43,6 +44,7 @@ hex = "0.4"
 ipnet = "2"
 regex = "1"
 csv = "1"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "pool", "tokio1", "tokio1-rustls", "ring", "webpki-roots"] }
 bollard = { version = "0.19", default-features = false, features = ["pipe"] }
 futures-util = { version = "0.3", default-features = false }
 aes = "0.8"

@@ -29,6 +29,8 @@ pub struct Inner {
     pub caches: Caches,
     /// Key for signing the safe-entrance cookie.
     pub entrance_key: [u8; 32],
+    /// Key for signing tracking links.
+    pub tracking_key: [u8; 32],
 }
 
 /// Short-lived caches in front of hot database lookups. TTLs bound how long a
@@ -80,6 +82,7 @@ impl AppState {
 
     pub fn with_access_log(config: Config, store: Store, access_log: AccessLog) -> Result<Self> {
         let entrance_key = crate::edge::derive_entrance_key(&config.jwt_secret);
+        let tracking_key = ferropost_domain::tracking::tracking_key(&config.jwt_secret);
         Ok(Self(Arc::new(Inner {
             i18n: Translator::new(config.root.join("languages")),
             jwt: JwtVerifier::new(&config.jwt_secret),
@@ -87,6 +90,7 @@ impl AppState {
             access_log,
             caches: Caches::new(),
             entrance_key,
+            tracking_key,
             config,
             store,
         })))

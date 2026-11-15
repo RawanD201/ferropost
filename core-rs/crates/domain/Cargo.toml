@@ -16,9 +16,11 @@ base64.workspace = true
 cbc.workspace = true
 chrono.workspace = true
 csv.workspace = true
+hmac.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx = { workspace = true, optional = true }
 
 [lints]

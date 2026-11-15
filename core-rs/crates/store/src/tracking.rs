@@ -6,19 +6,27 @@ use sqlx::PgPool;
 
 /// Records an open or click and marks the contact active.
 ///
-/// Tracking tokens can be forged (see `ferropost_domain::tracking`), so an
-/// event is only accepted when its message ID belongs to mail this server
-/// sent (Postfix logged it). Returns `false` when it does not; the caller
-/// then neither counts it nor redirects.
-pub async fn record(pg: &PgPool, event: &TrackingEvent, now_millis: i64) -> Result<bool> {
-    let Some(postfix_id) = sqlx::query_scalar::<_, String>(
+/// Legacy tokens can be forged (see `ferropost_domain::tracking`), so an
+/// untrusted event is only accepted when its message ID belongs to mail this
+/// server sent (Postfix logged it). Signed tokens are `trusted` and always
+/// accepted, even before the mail log has caught up. Returns `false` when
+/// the event was refused; the caller then neither counts nor redirects.
+pub async fn record(
+    pg: &PgPool,
+    event: &TrackingEvent,
+    trusted: bool,
+    now_millis: i64,
+) -> Result<bool> {
+    let postfix_id = sqlx::query_scalar::<_, String>(
         "SELECT postfix_message_id FROM mailstat_message_ids WHERE message_id = $1 LIMIT 1",
     )
     .bind(&event.message_id)
     .fetch_optional(pg)
-    .await?
-    else {
-        return Ok(false);
+    .await?;
+    let postfix_id = match postfix_id {
+        Some(id) => id,
+        None if trusted => String::new(),
+        None => return Ok(false),
     };
 
     let mut tx = pg.begin().await?;

@@ -29,6 +29,7 @@ in Rust.
 | `crates/store` | Postgres (sqlx) and Redis (fred) queries against the Go schema. |
 | `crates/api` | axum app: edge, JWT auth, RBAC, response envelope, Go proxy, native routes. |
 | `crates/jobs` | Background jobs moved out of Go (mail-log ingestion, aggregation). |
+| `crates/sender` | Mail composition: Go-compatible templates, spintax, signed tracking links, unsubscribe tokens, SMTP to Postfix. |
 | `crates/server` | `ferropost` binary: listeners, TLS/SNI certificates, graceful shutdown. |
 
 ## Background jobs
@@ -187,6 +188,19 @@ These are security fixes that keep the frontend working unchanged:
   pass and stored deferrals again, missed lines still in `mail.log.1` after
   rotation, and guessed the year of syslog timestamps from the file's
   modification time (wrong across New Year).
+- **Templates** render with `gtmpl` (Go's template language) using Go's
+  data model, helpers and fallback; output is checked byte for byte against
+  GoFrame's `gview`. Spintax works in one pass (Go was quadratic) and leaves
+  `<SCRIPT>` blocks alone regardless of case.
+- **Outgoing mail** (once sending moves): headers are encoded and cannot be
+  injected, a plain-text part accompanies the HTML, and the session to
+  Postfix upgrades to TLS. Mailbox passwords stay stored reversibly (hex of
+  base64), as Go needs them to submit as each sender; replacing that needs a
+  Postfix-side change and is tracked for step 5.
+- **Unsubscribe links:** Go signed them with a secret derived from fixed
+  default values, identical on default installs, so anyone could forge an
+  unsubscribe for any address. New links use a random secret; Go's links
+  (valid 30 days) are still accepted with extra checks.
 - **Tracking links:** Go's link "encryption" carries its own key, so anyone
   can decode or forge a link, including a click link that redirects to any
   site from your mail domain (an open redirect usable for phishing). Old
@@ -210,6 +224,6 @@ These are security fixes that keep the frontend working unchanged:
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done; `contact/group/info` moves to step 4)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
-4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue, with HMAC-signed tracking links
+4. Sending: building blocks (done); subscribe/unsubscribe flows (must move before sending, since Go only knows its own token secret); campaigns on a durable Postgres job queue; the send API; warmup and campaign stats
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations

@@ -1,0 +1,25 @@
+[package]
+name = "ferropost-sender"
+description = "Ferropost mail composition: templates, spintax, tracking links, tokens, SMTP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+chrono.workspace = true
+ferropost-domain.workspace = true
+gtmpl = "0.7"
+gtmpl_value = "0.5"
+jsonwebtoken.workspace = true
+lettre.workspace = true
+rand = "0.8"
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

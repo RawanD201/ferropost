@@ -7,7 +7,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, LOCATION};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
-use ferropost_domain::tracking::{EventKind, PIXEL_PNG, TokenError, decode_legacy};
+use ferropost_domain::tracking::{EventKind, Origin, PIXEL_PNG, TokenError, decode};
 
 use crate::state::AppState;
 
@@ -16,14 +16,16 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn track(State(state): State<AppState>, Path(token): Path<String>) -> Response {
-    let event = match decode_legacy(&token) {
-        Ok(event) => event,
+    let (event, origin) = match decode(&token, &state.tracking_key) {
+        Ok(decoded) => decoded,
         Err(TokenError::Malformed) => return text("Invalid -1"),
         Err(TokenError::Invalid) => return text("Invalid -2"),
     };
 
     let now = chrono::Utc::now().timestamp_millis();
-    let known = match ferropost_store::tracking::record(&state.store.pg, &event, now).await {
+    let trusted = origin == Origin::Signed;
+    let known = match ferropost_store::tracking::record(&state.store.pg, &event, trusted, now).await
+    {
         Ok(known) => known,
         Err(err) => {
             tracing::warn!(error = %format!("{err:#}"), "tracking event not stored");
