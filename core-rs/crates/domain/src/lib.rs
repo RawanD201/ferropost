@@ -9,4 +9,5 @@ pub mod mail;
 pub mod paging;
 pub mod rbac;
 pub mod tags;
+pub mod templates;
 pub mod web;

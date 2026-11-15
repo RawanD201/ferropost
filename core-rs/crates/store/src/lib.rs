@@ -10,6 +10,7 @@ pub mod groups;
 pub mod options;
 pub mod rbac;
 pub mod tags;
+pub mod templates;
 pub mod tokens;
 pub mod whitelist;
 
@@ -113,6 +114,14 @@ where
     }
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{what}: no attempts made")))
         .with_context(|| format!("{what} unavailable after {CONNECT_ATTEMPTS} attempts"))
+}
+
+/// Outcome of an update that can hit a missing row or a unique constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Write {
+    Done,
+    NotFound,
+    Duplicate,
 }
 
 /// Escapes `%`, `_` and `\` so user input matches literally inside `LIKE`.

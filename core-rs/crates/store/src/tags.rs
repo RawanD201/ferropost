@@ -5,7 +5,7 @@ use ferropost_domain::paging::{Page, PageRequest};
 use ferropost_domain::tags::Tag;
 use sqlx::PgPool;
 
-use crate::like_contains;
+use crate::{Write, like_contains};
 
 #[derive(Debug, Clone, Default)]
 pub struct TagFilter {
@@ -58,14 +58,6 @@ pub struct TagRef {
     pub id: i32,
     pub group_id: i32,
     pub name: String,
-}
-
-/// Outcome of a write that can collide with `UNIQUE(group_id, name)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Write {
-    Done,
-    NotFound,
-    Duplicate,
 }
 
 /// Inserts a tag. Returns `false` when the group already has a tag with

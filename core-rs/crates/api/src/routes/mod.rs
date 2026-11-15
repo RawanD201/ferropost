@@ -3,6 +3,7 @@
 //! To port a domain: add a module, register its routes in [`router`] under
 //! the same paths and methods Go uses, and verify the JSON matches.
 
+mod email_template;
 mod operation_log;
 mod tags;
 
@@ -25,6 +26,7 @@ pub fn router(state: AppState) -> Router<AppState> {
     let authenticated = Router::new()
         .merge(tags::routes())
         .merge(operation_log::routes())
+        .merge(email_template::routes())
         // Pasted address lists can be large; Go allowed up to 800 MB.
         .route_layer(DefaultBodyLimit::max(BODY_LIMIT))
         .route_layer(from_fn_with_state(state.clone(), rbac::require_permission))

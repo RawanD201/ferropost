@@ -152,7 +152,7 @@ pub async fn reset_schema(store: &Store) {
     let statements = [
         "DROP TABLE IF EXISTS role_permission, account_role, permission, role, account,
              bm_contact_tags, bm_contacts, bm_tags, bm_contact_groups, bm_options,
-             bm_console_ip_whitelist, bm_operation_logs CASCADE",
+             bm_console_ip_whitelist, bm_operation_logs, email_templates CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -212,6 +212,13 @@ pub async fn reset_schema(store: &Store) {
             id SERIAL PRIMARY KEY, contact_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
             create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
             UNIQUE(contact_id, tag_id))",
+        "CREATE TABLE email_templates (
+            id SERIAL PRIMARY KEY, temp_name VARCHAR(255), chat_id VARCHAR(255),
+            add_type SMALLINT NOT NULL DEFAULT 0, content TEXT NOT NULL DEFAULT '',
+            render TEXT NOT NULL DEFAULT '',
+            create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            update_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            UNIQUE(temp_name))",
         "CREATE TABLE bm_operation_logs (
             id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL DEFAULT 0, type VARCHAR(64) NOT NULL,
             log TEXT NOT NULL, ip VARCHAR(64) NOT NULL, info TEXT NOT NULL,

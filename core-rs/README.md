@@ -34,6 +34,7 @@ in Rust.
 
 | Route | Notes |
 |---|---|
+| `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
@@ -136,6 +137,10 @@ These are security fixes that keep the frontend working unchanged:
   found, 409 conflict) instead of Go's `code: 0`. The console only reads `msg`.
 - **Tags:** creating a tag in a group that does not exist is rejected (Go
   created an orphan tag).
+- **Template check:** `<br>`, `<img>` and other void elements no longer count
+  as unclosed tags, so "HTML tags are not standard" only flags real problems.
+  Go flagged almost every email.
+- **Empty lists** are `[]` rather than `null`.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -143,7 +148,7 @@ These are security fixes that keep the frontend working unchanged:
 ## Roadmap
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
-2. Simple domains: tags (done), operation_log (done), email_template, contact
+2. Simple domains: tags, operation_log, email_template (done), contact
 3. `maillog_stat` and `overview`: streaming Postfix log parser, the `/pmta/` tracker, dashboard stats
 4. Sending: `batch_mail`, `warmup` and the subscribe flow (it sends confirmation mail) on a durable Postgres job queue
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy

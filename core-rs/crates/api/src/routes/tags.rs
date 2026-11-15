@@ -10,7 +10,8 @@ use ferropost_domain::audit::LogType;
 use ferropost_domain::contacts::parse_email_list;
 use ferropost_domain::paging::{Page, PageRequest};
 use ferropost_domain::tags::Tag;
-use ferropost_store::tags::{TagFilter, Write};
+use ferropost_store::Write;
+use ferropost_store::tags::TagFilter;
 use serde::{Deserialize, Serialize};
 
 use super::now;
