@@ -48,6 +48,8 @@ pub struct Config {
     /// The shared `conf/` directory (AskAI's providers, projects and chats
     /// live under it, as with Go).
     pub conf_dir: PathBuf,
+    /// Lets AskAI fetch private addresses (development and tests only).
+    pub fetch_private: bool,
     /// rspamd's `local.d` (`<root>/../conf/rspamd/local.d`).
     pub rspamd_local_d: PathBuf,
     /// rspamd's data, DKIM keys included (`<root>/../rspamd-data`).
@@ -210,6 +212,8 @@ impl Config {
             conf_dir: var("FERROPOST_CONF_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("../conf")),
+            fetch_private: var("FERROPOST_FETCH_PRIVATE")
+                .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes")),
             rspamd_local_d: root.join("../conf/rspamd/local.d"),
             rspamd_data_dir: root.join("../rspamd-data"),
             rspamd_container: var("FERROPOST_RSPAMD_CONTAINER")

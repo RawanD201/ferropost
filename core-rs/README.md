@@ -52,6 +52,7 @@ everything. supervisord sets it for both programs.
 | `multi_ip` | `ReapplyAllIptablesRules` | Three seconds after start-up replaces the host's SNAT rules (dedicated network → sending IP) in one privileged helper run, removing stale ones even when no dedicated IP is left. |
 | `blacklist` | `CheckDomainsBlacklist` | Once a day (first pass ten minutes after start-up, then 24 hours after the last one, across restarts) checks every mail host's address on the DNS blocklists, three hours apart for up to eight domains as Go did, and mails the alert recipients about a listing. Honours the automatic-scan switch. |
 | `domains` | `FreshRecords`, `RepairDKIMSigningConfig`, `FixRspamdDKIMSigningConfig` | At start-up makes missing DKIM keys, rewrites rspamd's `dkim_signing.conf` only if it changed (Go rewrote it and restarted rspamd at every start) and makes existing private keys readable by rspamd only. Every 5 minutes checks every domain's DNS records (cached for the domain list) and makes keys that went missing. Go keeps `UpdateBaseURL`, which only fills Go's own memory for the routes it still serves. |
+| `askai` | `AutoGetProjectInfo` | Reads the brand site of every AskAI project not read yet, every 10 minutes (a new project is read at once; Go polled every 5 seconds and retried a failing site forever). |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -81,6 +82,7 @@ everything. supervisord sets it for both programs.
 | `/api/domains/*` (all 8 routes) | Sending domains: create, update, brand flag, delete, list, all, refresh DNS records, default domain. A new domain gets Go's five system mailboxes, its DKIM keys and its mail host certificate, as before. |
 | `/api/domain_blocklist/check`, `/api/domain_blocklist/logs` | Checks a mail host on 139 DNS blocklists in the background and serves the check's log. |
 | `/api/askai/supplier/*` (all 15 routes) | AI providers and their models, in Go's files under `conf/supplier/` (built-in providers copied from the templates). |
+| `/api/askai/project/*` (all 23 routes), `/media/*` (public) | AskAI brand projects in Go's files under `conf/askai/`: details, company profile, style, sitemap, footer, prompt, knowledge base and images. Images are stored and served here. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -117,6 +119,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_RSPAMD_URL` | `http://rspamd:11334` (container) / `http://127.0.0.1:21334` | rspamd's controller, behind `/rspamd/` |
 | `FERROPOST_RSPAMD_CONTAINER` | `rspamd-billionmail` | Restarted when DKIM keys or signing change (`none` disables) |
 | `FERROPOST_CORE_CONTAINER` | `core-billionmail` | This container, restarted for the API docs switch (`none` disables) |
+| `FERROPOST_FETCH_PRIVATE` | off | Lets AskAI fetch private addresses (development and tests only) |
 | `FERROPOST_DOCKER` | on | `none` keeps every call away from the Docker socket (tests, development) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
 | `FERROPOST_SMTP_HOST` / `FERROPOST_SMTP_PORT` | `postfix` (container) / `localhost`, 25 | Where subscription mail is submitted |
@@ -444,6 +447,22 @@ These are security fixes that keep the frontend working unchanged:
   Removing a model reports success (Go answered "Model not found" when it
   worked); edits made while a provider is off no longer save all its
   models as off; adding a model to an unknown provider fails.
+- **AskAI brand projects** no longer use BillionMail's own service
+  (`cdn.billionmail.com`). Go sent each brand URL there to be read and
+  every uploaded image there to be hosted; here the site is fetched from
+  this server (public addresses only, never the containers' networks,
+  with size and time limits), its details are read from the HTML and the
+  configured AI model fills in the rest (industry, company name, brand
+  colours), and images are kept in `data/media/` and served at
+  `/media/<id>.<ext>` (PNG, JPEG, GIF, WebP and ICO only: no SVG). A site
+  that cannot be read is tried three times and the project is then marked
+  read, so the console stops waiting (Go retried every five seconds,
+  forever). A setting sent empty is cleared and one left out is kept: Go
+  could not clear anything, and saving the fonts alone wiped the brand
+  colours. Reading a setting no longer writes its default file; ids and
+  domains are checked before they become file names (Go's `../` reached
+  any `.json` file). An uploaded logo becomes the project's logo (the
+  console now shows it).
 - **Video outreach is gone** (`/api/video_outreach/*`, `/landing/video`
   and its job, in Go and in the console). It needed ffmpeg, Node
   Playwright and Anthropic, Cartesia, SyncLabs and Cloudflare R2 keys that

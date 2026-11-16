@@ -66,16 +66,18 @@ pub const PUBLIC_EXACT_PATHS: &[&str] = &[
 /// Prefixes that recipients and certificate authorities hit directly.
 ///
 /// The Go server exempted these from the IP whitelist but *not* from the safe
-/// entrance, so with a SafePath configured, open/click tracking (`/pmta/`),
-/// ACME HTTP-01 challenges and video landing pages answered 404. They are
-/// exempt from both here.
-pub const PUBLIC_PREFIXES: &[&str] = &["/pmta/", "/.well-known/acme-challenge/", "/landing/video"];
+/// entrance, so with a SafePath configured, open/click tracking (`/pmta/`)
+/// and ACME HTTP-01 challenges answered 404. They are exempt from both here,
+/// with AskAI's brand images (`/media/`, which Go kept on BillionMail's own
+/// service).
+pub const PUBLIC_PREFIXES: &[&str] = &["/pmta/", "/.well-known/acme-challenge/", "/media/"];
 
 /// Paths the IP whitelist never blocks (Go's `isExcludedPath`).
 pub fn whitelist_exempt(path: &str) -> bool {
     PUBLIC_EXACT_PATHS.contains(&path)
         || path.starts_with("/.well-known/acme-challenge")
         || path.starts_with("/pmta/")
+        || path.starts_with("/media/")
         || path.starts_with("/roundcube")
 }
 

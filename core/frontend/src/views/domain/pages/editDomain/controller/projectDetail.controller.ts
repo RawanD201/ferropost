@@ -169,7 +169,7 @@ export async function uploadImage(
 	image_tag: string
 ) {
 	try {
-		await instance.post(
+		const res = (await instance.post(
 			'/askai/project/upload_image',
 			{
 				domain,
@@ -179,8 +179,8 @@ export async function uploadImage(
 				image_tag,
 			},
 			instanceOptions
-		)
-		// console.log(res)
+		)) as { url?: string }
+		return res?.url ?? ''
 	} catch (error) {
 		console.warn(error)
 		return ''

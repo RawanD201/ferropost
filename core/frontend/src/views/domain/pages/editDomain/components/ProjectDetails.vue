@@ -313,16 +313,20 @@ function faviconChange(event: Event, type: string) {
 	const reader = new FileReader()
 	reader.onload = async function (event: ProgressEvent<FileReader>) {
 		const base64String = event.target?.result as string
+		// The server makes an uploaded logo the project's logo; show it.
 		if (type == 'favicon') {
-			uploadImage(domain, base64String, file.name, 'favicon', 'favicon')
+			const url = await uploadImage(domain, base64String, file.name, 'favicon', 'favicon')
+			if (url) favicon.value = url
 		}
 
 		if (type == 'secondary') {
-			uploadImage(domain, base64String, file.name, 'secondary logo', 'secondary logo')
+			const url = await uploadImage(domain, base64String, file.name, 'secondary logo', 'secondary logo')
+			if (url) secondary_logo.value = url
 		}
 
 		if (type == 'primary') {
-			uploadImage(domain, base64String, file.name, 'primary logo', 'primary logo')
+			const url = await uploadImage(domain, base64String, file.name, 'primary logo', 'primary logo')
+			if (url) primary_logo.value = url
 		}
 	}
 	reader.readAsDataURL(file)

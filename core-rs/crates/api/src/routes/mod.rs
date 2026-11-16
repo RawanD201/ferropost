@@ -97,6 +97,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(sign_in::public_routes())
         // Authenticated by its own cookie (an iframe sends no token).
         .merge(crate::rspamd::routes())
+        // AskAI's brand images, which mail clients load.
+        .route(
+            "/media/{file}",
+            axum::routing::get(crate::askai::media::serve),
+        )
         // Let's Encrypt's HTTP-01 validation.
         .route(
             "/.well-known/acme-challenge/{token}",

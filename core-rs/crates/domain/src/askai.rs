@@ -220,3 +220,276 @@ mod tests {
         assert_eq!(json["max_tokens"], 8192);
     }
 }
+
+/// A brand project's `project.json` (Go's `ProjectConfig`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectConfig {
+    pub domain: String,
+    pub urls: Vec<String>,
+    pub project_name: String,
+    pub description: String,
+    pub industry: String,
+    pub primary_logo: String,
+    pub secondary_logo: String,
+    pub favicon: String,
+    pub knowledge_base: Vec<KnowledgeInfo>,
+    pub status: bool,
+    pub update_time: i64,
+}
+
+/// A knowledge base document (Go's `KnowledgeInfo`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KnowledgeInfo {
+    pub kid: String,
+    pub title: String,
+    pub content: String,
+    pub update_time: i64,
+}
+
+/// Go's `CompanyProfile`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompanyProfile {
+    pub legal_company_name: String,
+    pub web_site: String,
+    pub company_profile: String,
+    pub email: String,
+    pub phone: String,
+    pub support_url: String,
+    pub update_time: i64,
+}
+
+/// Go's `StyleConfig`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StyleConfig {
+    pub accent_color: String,
+    pub text_color: String,
+    pub page_background: String,
+    pub container_background: String,
+    pub link_social_color: String,
+    pub link_footer_color: String,
+    pub heading_font: String,
+    pub body_font: String,
+    pub update_time: i64,
+}
+
+impl Default for StyleConfig {
+    /// Go's defaults.
+    fn default() -> Self {
+        Self {
+            accent_color: "#007bff".to_owned(),
+            text_color: "#000000".to_owned(),
+            page_background: "#ffffff".to_owned(),
+            container_background: "#f8f9fa".to_owned(),
+            link_social_color: "#007bff".to_owned(),
+            link_footer_color: "#6c757d".to_owned(),
+            heading_font: "Arial, sans-serif".to_owned(),
+            body_font: "Arial, sans-serif".to_owned(),
+            update_time: 0,
+        }
+    }
+}
+
+/// One page of a brand's site (Go's `SiteMap`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SitemapNode {
+    pub title: String,
+    pub uri_path: String,
+    pub update_time: i64,
+}
+
+/// Go's `FooterConfig`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FooterConfig {
+    pub copyright_text: String,
+    pub disclaimer: String,
+    pub text: String,
+    pub update_time: i64,
+}
+
+impl Default for FooterConfig {
+    /// Go's defaults.
+    fn default() -> Self {
+        Self {
+            copyright_text: "© 2023 Your Company. All rights reserved.".to_owned(),
+            disclaimer: "This is a sample disclaimer.".to_owned(),
+            text: String::new(),
+            update_time: 0,
+        }
+    }
+}
+
+/// Go's `PromptConfig`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PromptConfig {
+    pub prompt: String,
+    pub update_time: i64,
+}
+
+impl Default for PromptConfig {
+    fn default() -> Self {
+        Self {
+            prompt: "This is a default prompt. Please customize it.".to_owned(),
+            update_time: 0,
+        }
+    }
+}
+
+/// A brand image (Go's `ImageInfo`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImageInfo {
+    pub image_id: String,
+    pub image_url: String,
+    pub filename: String,
+    pub alt_text: String,
+    pub image_tag: String,
+    pub update_time: i64,
+    pub size: String,
+}
+
+/// Brand URLs a project may have (Go's limit).
+pub const MAX_PROJECT_URLS: usize = 3;
+
+/// An id this module made (UUIDs) or Go did, safe as a file name.
+pub fn is_item_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// A CSS colour as the style settings take it (`#rgb`, `#rrggbb`,
+/// `#rrggbbaa`).
+pub fn is_color(value: &str) -> bool {
+    value.strip_prefix('#').is_some_and(|hex| {
+        matches!(hex.len(), 3 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    })
+}
+
+/// A project's brand URLs: `http://` added where no scheme is given (as
+/// Go did), at most three.
+pub fn project_urls(domain: &str, urls: &[String]) -> Result<Vec<String>, String> {
+    let mut cleaned: Vec<String> = Vec::new();
+    for url in urls {
+        let url = url.trim();
+        if url.is_empty() {
+            continue;
+        }
+        let url = if url.to_ascii_lowercase().starts_with("http") {
+            url.to_owned()
+        } else {
+            format!("http://{url}")
+        };
+        if !is_base_url(&url) {
+            return Err(format!("`{url}` is not an http or https link"));
+        }
+        if !cleaned.contains(&url) {
+            cleaned.push(url);
+        }
+    }
+    if cleaned.len() > MAX_PROJECT_URLS {
+        return Err("Add up to 3 URLs".to_owned());
+    }
+    if cleaned.is_empty() {
+        cleaned.push(format!("http://{domain}"));
+    }
+    Ok(cleaned)
+}
+
+/// Whether an address is public (not loopback, private, link-local,
+/// shared, reserved or documentation space). The containers' own network
+/// (`IPV4_NETWORK`, `172.66.0.0/16` by default) is public space and must be
+/// refused separately.
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4.is_documentation()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 198 && (b == 18 || b == 19))
+                || a >= 240)
+        }
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+                || first == 0x2001 && v6.segments()[1] == 0x0db8)
+        }
+    }
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+
+    #[test]
+    fn project_rules() {
+        assert!(is_item_id("0190f2c4-7d9c-7c3e-9a3f-1c2d3e4f5a6b"));
+        assert!(!is_item_id("../x"));
+        assert!(is_color("#fff") && is_color("#0a0B0c") && !is_color("red") && !is_color("#12345"));
+        assert_eq!(
+            project_urls("ex.test", &[]).expect("urls"),
+            ["http://ex.test"],
+            "Go's default"
+        );
+        assert_eq!(
+            project_urls(
+                "ex.test",
+                &["ex.test/about".to_owned(), "https://ex.test".to_owned()]
+            )
+            .expect("urls"),
+            ["http://ex.test/about", "https://ex.test"]
+        );
+        let four: Vec<String> = (0..4).map(|i| format!("https://{i}.test")).collect();
+        assert_eq!(
+            project_urls("ex.test", &four),
+            Err("Add up to 3 URLs".to_owned())
+        );
+        let json = serde_json::to_value(StyleConfig::default()).expect("json");
+        assert_eq!(json["accent_color"], "#007bff");
+    }
+
+    #[test]
+    fn public_addresses() {
+        let public = |s: &str| is_public_ip(s.parse().expect("ip"));
+        for ip in ["93.184.216.34", "2606:4700::1111", "1.1.1.1"] {
+            assert!(public(ip), "{ip}");
+        }
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "::1",
+            "fd00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "198.18.0.1",
+        ] {
+            assert!(!public(ip), "{ip}");
+        }
+    }
+}

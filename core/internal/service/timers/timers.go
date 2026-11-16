@@ -161,7 +161,9 @@ func Start(ctx context.Context) (err error) {
 	gtimer.AddOnce(800*time.Millisecond, fail2ban.NewAccessLogDetection().Start)
 
 	// askai timers
-	gtimer.Add(5*time.Second, askai.AutoGetProjectInfo)
+	if !OwnedByRust("askai") {
+		gtimer.Add(5*time.Second, askai.AutoGetProjectInfo)
+	}
 
 	if !OwnedByRust("abnormal_recipient") {
 		gtimer.Add(30*time.Minute, func() {

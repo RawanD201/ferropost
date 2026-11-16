@@ -86,6 +86,7 @@ async fn run() -> Result<()> {
     jobs.extend(ferropost_api::multi_ip::spawn(&state, stop_rx.clone()));
     jobs.extend(ferropost_api::blocklist::spawn(&state, stop_rx.clone()));
     jobs.extend(ferropost_api::domains::spawn(&state, stop_rx.clone()));
+    jobs.extend(ferropost_api::askai::crawl::spawn(&state, stop_rx.clone()));
     let watcher = {
         let graceful = graceful.clone();
         move || graceful.watcher()
