@@ -47,9 +47,11 @@ everything. supervisord sets it for both programs.
 
 | Route | Notes |
 |---|---|
-| `/api/contact/group/*` (11 of 12 routes) | Create, import, export, update, delete, list, all, merge and counts. Create-and-import is one transaction; imports are one statement each and skip or overwrite duplicates; list counts subscribers in one query; export adds Excel. `info` (subscription defaults) is still Go and moves with the subscribe flow in step 4. |
+| `/api/contact/group/*` (all 12 routes) | Create, import, export, update, delete, list, all, info, merge and counts. Create-and-import is one transaction; imports are one statement each and skip or overwrite duplicates; list counts subscribers in one query; export adds Excel; `info` fills unset subscription settings with the built-in defaults, as Go did. |
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
+| `/api/unsubscribe`, `/api/unsubscribe/user_group`, `/api/unsubscribe_new` (public) | Accept Go's links in people's inboxes, with extra checks. Listing an address's groups needs that address's unsubscribe link. The one-click route sends the group's "you're unsubscribed" mail with a resubscribe link. |
+| `/api/subscribe/submit`, `/api/subscribe/confirm` (public) | Forms post as before (form or JSON, values in the query or body). Addresses are validated, attributes are merged, double opt-in always goes through confirmation, and one confirmation mail per address and group goes out per 10 minutes. Mail is sent as `noreply@<default domain>`, creating that mailbox on first use as Go did. |
 | `/pmta/<token>` (open pixel, click redirect) | Accepts Go's existing links. Counts an event and redirects only for mail this server sent, and only to `http`/`https`; stores the clicked URL; activity updates are immediate. |
 | `/api/overview`, `/api/overview/failed` | Three queries instead of one per tile and chart; buckets generated in the server time zone (`TZ`) with calendar months; campaign filter counts each message once. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
@@ -81,6 +83,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `TZ` | `UTC` | Time zone of dashboard chart buckets |
 | `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
+| `FERROPOST_SMTP_HOST` / `FERROPOST_SMTP_PORT` | `postfix` (container) / `localhost`, 25 | Where subscription mail is submitted |
 | `RUST_LOG` | `info` | Log filter |
 
 The Go core enters internal mode when `FERROPOST_GO_INTERNAL_ADDR` is set. It then
@@ -101,6 +104,10 @@ docker run -d --rm --name bmrs-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine
 FERROPOST_TEST_DATABASE_URL=postgres://billionmail:test@127.0.0.1:55432/billionmail \
 FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test --tests
 ```
+
+Mail the tests trigger goes to an SMTP sink inside the test process (see
+`crates/api/tests/common`), so no mail server is needed and nothing leaves
+the machine.
 
 ## Build and deploy
 
@@ -192,7 +199,7 @@ These are security fixes that keep the frontend working unchanged:
   data model, helpers and fallback; output is checked byte for byte against
   GoFrame's `gview`. Spintax works in one pass (Go was quadratic) and leaves
   `<SCRIPT>` blocks alone regardless of case.
-- **Outgoing mail** (once sending moves): headers are encoded and cannot be
+- **Outgoing mail** (subscription mail now, campaigns from step 4c): headers are encoded and cannot be
   injected, a plain-text part accompanies the HTML, and the session to
   Postfix upgrades to TLS. Mailbox passwords stay stored reversibly (hex of
   base64), as Go needs them to submit as each sender; replacing that needs a
@@ -200,7 +207,20 @@ These are security fixes that keep the frontend working unchanged:
 - **Unsubscribe links:** Go signed them with a secret derived from fixed
   default values, identical on default installs, so anyone could forge an
   unsubscribe for any address. New links use a random secret; Go's links
-  (valid 30 days) are still accepted with extra checks.
+  (valid 30 days) are still accepted, but only for an address that received
+  that campaign or is in that group.
+- **Unsubscribe page:** listing the groups of an address now needs a valid
+  unsubscribe link for it. Go answered for any address, so anyone could see
+  which lists a person was on. `public/html/unsubscribe.html` sends the link
+  along.
+- **Subscribe form:** addresses are validated (Go stored any text), an empty
+  form token is rejected, and submitted attributes are merged into existing
+  ones instead of replacing them. On a double opt-in list, someone who left
+  is re-added only after confirming again; Go put them straight back on the
+  list, so anyone could re-subscribe any address. Confirmation mail is
+  limited to one per address and group per 10 minutes (Go had no limit, so
+  the public form could flood any inbox), and only an address that asked to
+  subscribe can be confirmed.
 - **Tracking links:** Go's link "encryption" carries its own key, so anyone
   can decode or forge a link, including a click link that redirects to any
   site from your mail domain (an open redirect usable for phishing). Old
@@ -222,8 +242,8 @@ These are security fixes that keep the frontend working unchanged:
 ## Roadmap
 
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
-2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done; `contact/group/info` moves to step 4)
+2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
-4. Sending: building blocks (done); subscribe/unsubscribe flows (must move before sending, since Go only knows its own token secret); campaigns on a durable Postgres job queue; the send API; warmup and campaign stats
+4. Sending: building blocks (done); subscribe/unsubscribe flows (done); campaigns on a durable Postgres job queue; the send API; warmup and campaign stats
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations

@@ -16,6 +16,7 @@ gtmpl = "0.7"
 gtmpl_value = "0.5"
 jsonwebtoken.workspace = true
 lettre.workspace = true
+pwhash.workspace = true
 rand = "0.8"
 regex.workspace = true
 serde.workspace = true

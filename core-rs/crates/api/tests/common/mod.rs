@@ -35,6 +35,8 @@ pub struct Harness {
     pub store: Store,
     pub upstream: String,
     pub root: tempfile::TempDir,
+    /// Receives all mail the app sends.
+    pub smtp: SmtpSink,
 }
 
 impl Harness {
@@ -66,6 +68,7 @@ impl Harness {
             store,
             upstream,
             root,
+            smtp: SmtpSink::start().await,
         })
     }
 
@@ -79,7 +82,10 @@ impl Harness {
     pub fn app(&self, env: &[(&str, &str)]) -> Router {
         let db = std::env::var("FERROPOST_TEST_DATABASE_URL").expect("db url");
         let redis = std::env::var("FERROPOST_TEST_REDIS_URL").expect("redis url");
-        let config = config(&self.core_dir(), &self.upstream, &db, &redis, env);
+        let port = self.smtp.port.to_string();
+        let mut extra = env.to_vec();
+        extra.push(("FERROPOST_SMTP_PORT", &port));
+        let config = config(&self.core_dir(), &self.upstream, &db, &redis, &extra);
         let state = AppState::with_access_log(config, self.store.clone(), AccessLog::disabled())
             .expect("state");
         ferropost_api::app(state)
@@ -97,19 +103,155 @@ pub fn config(
         ("DBPASS".into(), SECRET_DB.into()),
         ("REDISPASS".into(), SECRET_REDIS.into()),
     ]);
-    env.extend(extra.iter().map(|(k, v)| ((*k).into(), (*v).into())));
-    let vars: HashMap<&str, String> = HashMap::from([
+    let mut vars: HashMap<&str, String> = HashMap::from([
         ("FERROPOST_DATABASE_URL", db.to_owned()),
         ("FERROPOST_REDIS_URL", redis.to_owned()),
         ("FERROPOST_GO_UPSTREAM", upstream.to_owned()),
         ("FERROPOST_SERVER_IP", "198.51.100.1".to_owned()),
         // Never reach the Docker daemon of the machine running the tests.
         ("FERROPOST_POSTFIX_CONTAINER", "none".to_owned()),
+        // Mail goes to the harness's sink, or to a closed port: never to an
+        // MTA that happens to listen on the test machine.
+        ("FERROPOST_SMTP_HOST", "127.0.0.1".to_owned()),
+        ("FERROPOST_SMTP_PORT", "9".to_owned()),
     ]);
+    // `FERROPOST_*` values are process environment; the rest is `.env`.
+    for (k, v) in extra {
+        if k.starts_with("FERROPOST_") {
+            vars.insert(k, (*v).to_owned());
+        } else {
+            env.insert((*k).into(), (*v).into());
+        }
+    }
     Config::from_sources(root.to_path_buf(), Arc::new(EnvFile::from_map(env)), |k| {
         vars.get(k).cloned()
     })
     .expect("config")
+}
+
+/// A message the sink accepted.
+#[derive(Debug, Clone, Default)]
+pub struct SinkMail {
+    /// The `AUTH` user name.
+    pub login: String,
+    pub password: String,
+    pub from: String,
+    pub to: Vec<String>,
+    pub data: Vec<u8>,
+}
+
+/// A minimal SMTP server on a random local port that accepts any login
+/// and keeps every message in memory, so tests check real submissions
+/// without anything leaving the process.
+#[derive(Clone)]
+pub struct SmtpSink {
+    pub port: u16,
+    mails: Arc<std::sync::Mutex<Vec<SinkMail>>>,
+}
+
+impl SmtpSink {
+    pub async fn start() -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind smtp sink");
+        let sink = Self {
+            port: listener.local_addr().expect("addr").port(),
+            mails: Arc::default(),
+        };
+        let mails = sink.mails.clone();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let mails = mails.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = smtp_session(stream, mails).await {
+                        eprintln!("smtp sink session: {err}");
+                    }
+                });
+            }
+        });
+        sink
+    }
+
+    pub fn mails(&self) -> Vec<SinkMail> {
+        self.mails.lock().expect("sink").clone()
+    }
+}
+
+async fn smtp_session(
+    stream: tokio::net::TcpStream,
+    mails: Arc<std::sync::Mutex<Vec<SinkMail>>>,
+) -> std::io::Result<()> {
+    use base64::Engine;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let (read, mut write) = stream.into_split();
+    let mut read = BufReader::new(read);
+    let mut mail = SinkMail::default();
+    let mut line = String::new();
+    let path = |arg: &str| {
+        let arg = arg.trim();
+        arg.split_once('<')
+            .and_then(|(_, rest)| rest.split_once('>'))
+            .map_or(arg, |(addr, _)| addr)
+            .to_owned()
+    };
+    write.write_all(b"220 sink ESMTP\r\n").await?;
+    loop {
+        line.clear();
+        if read.read_line(&mut line).await? == 0 {
+            return Ok(());
+        }
+        let command = line.trim_end().to_owned();
+        let upper = command.to_ascii_uppercase();
+        let answer = if upper.starts_with("EHLO") {
+            "250-sink\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n"
+        } else if upper.starts_with("HELO") || upper == "NOOP" {
+            "250 ok\r\n"
+        } else if let Some(initial) = upper.strip_prefix("AUTH PLAIN ").map(|_| &command[11..]) {
+            let plain = base64::engine::general_purpose::STANDARD
+                .decode(initial.trim())
+                .unwrap_or_default();
+            let mut parts = plain.split(|b| *b == 0).skip(1);
+            mail.login = String::from_utf8_lossy(parts.next().unwrap_or_default()).into_owned();
+            mail.password = String::from_utf8_lossy(parts.next().unwrap_or_default()).into_owned();
+            "235 ok\r\n"
+        } else if upper.starts_with("MAIL FROM:") {
+            mail.from = path(&command[10..]);
+            "250 ok\r\n"
+        } else if upper.starts_with("RCPT TO:") {
+            mail.to.push(path(&command[8..]));
+            "250 ok\r\n"
+        } else if upper == "DATA" {
+            write.write_all(b"354 go ahead\r\n").await?;
+            let mut data = Vec::new();
+            loop {
+                line.clear();
+                if read.read_line(&mut line).await? == 0 {
+                    return Ok(());
+                }
+                if line == ".\r\n" {
+                    break;
+                }
+                // Undo dot-stuffing.
+                data.extend_from_slice(line.strip_prefix('.').unwrap_or(&line).as_bytes());
+            }
+            let login = (mail.login.clone(), mail.password.clone());
+            let done = std::mem::take(&mut mail);
+            mails.lock().expect("sink").push(SinkMail { data, ..done });
+            (mail.login, mail.password) = login;
+            "250 queued\r\n"
+        } else if upper == "RSET" {
+            mail.from.clear();
+            mail.to.clear();
+            "250 ok\r\n"
+        } else if upper == "QUIT" {
+            write.write_all(b"221 bye\r\n").await?;
+            return Ok(());
+        } else {
+            "502 not implemented\r\n"
+        };
+        write.write_all(answer.as_bytes()).await?;
+    }
 }
 
 /// Echoes what Go would receive, so the test can inspect forwarded headers.
@@ -156,7 +298,8 @@ pub async fn reset_schema(store: &Store) {
              bm_contact_tags, bm_contacts, bm_tags, bm_contact_groups, bm_options,
              bm_console_ip_whitelist, bm_operation_logs, email_templates, email_tasks,
              mailstat_message_ids, mailstat_opened, mailstat_clicked, mailstat_send_mails,
-             mailstat_senders, mailstat_deferred_mails, recipient_info CASCADE",
+             mailstat_senders, mailstat_deferred_mails, recipient_info, unsubscribe_records,
+             domain, mailbox CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -224,7 +367,28 @@ pub async fn reset_schema(store: &Store) {
             update_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
             UNIQUE(temp_name))",
         // Only the columns Rust reads so far.
-        "CREATE TABLE email_tasks (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE email_tasks (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL DEFAULT 0,
+            addresser VARCHAR(320) NOT NULL DEFAULT '')",
+        "CREATE TABLE unsubscribe_records (
+            id SERIAL PRIMARY KEY, email VARCHAR(320) NOT NULL, group_id INTEGER,
+            template_id INTEGER, task_id INTEGER,
+            unsubscribe_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()))",
+        "CREATE TABLE domain (
+            domain varchar(255) NOT NULL, a_record varchar(255) NOT NULL DEFAULT '',
+            mailboxes int NOT NULL DEFAULT 50, mailbox_quota BIGINT NOT NULL DEFAULT 5368709120,
+            quota BIGINT NOT NULL DEFAULT 10737418240, rate_limit INT DEFAULT 12,
+            create_time INT NOT NULL default 0, active SMALLINT NOT NULL DEFAULT 1,
+            urls TEXT[] NOT NULL DEFAULT '{}'::TEXT[], hasbrandinfo SMALLINT NOT NULL DEFAULT 0,
+            current_usage BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (domain))",
+        "CREATE TABLE mailbox (
+            username varchar(255) NOT NULL, password varchar(255) NOT NULL,
+            password_encode varchar(255) NOT NULL, full_name varchar(255) NOT NULL,
+            is_admin smallint NOT NULL DEFAULT 0, maildir varchar(255) NOT NULL,
+            quota bigint NOT NULL DEFAULT 0, local_part varchar(255) NOT NULL,
+            domain varchar(255) NOT NULL, create_time int NOT NULL default 0,
+            update_time int NOT NULL default 0, active SMALLINT NOT NULL DEFAULT 1,
+            used_quota BIGINT NOT NULL DEFAULT 0, quota_active SMALLINT NOT NULL DEFAULT 1,
+            PRIMARY KEY (username))",
         "CREATE TABLE mailstat_message_ids (postfix_message_id TEXT PRIMARY KEY,
             log_time_millis BIGINT NOT NULL DEFAULT 0,
             log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
@@ -347,6 +511,38 @@ pub async fn post(app: &Router, uri: &str, auth: &str, body: Value) -> Reply {
     .await
 }
 
+/// POSTs an HTML form (`application/x-www-form-urlencoded`).
+pub async fn post_form(app: &Router, uri: &str, form: &[(&str, &str)]) -> Reply {
+    let body = form
+        .iter()
+        .map(|(k, v)| format!("{}={}", urlencode(k), urlencode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let mut req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("host", "console.example.com")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(body))
+        .expect("request");
+    req.extensions_mut().insert(ConnInfo {
+        peer: CLIENT.parse::<SocketAddr>().expect("addr"),
+        tls: false,
+    });
+    reply(app.clone().oneshot(req).await.expect("infallible")).await
+}
+
+pub fn urlencode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                char::from(b).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 pub async fn send(
     app: &Router,
     method: &str,
@@ -374,7 +570,10 @@ pub async fn send(
         peer: CLIENT.parse::<SocketAddr>().expect("addr"),
         tls,
     });
-    let response = app.clone().oneshot(req).await.expect("infallible");
+    reply(app.clone().oneshot(req).await.expect("infallible")).await
+}
+
+async fn reply(response: Response) -> Reply {
     let status = response.status();
     let headers = response.headers().clone();
     let bytes = response

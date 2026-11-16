@@ -1,9 +1,8 @@
 //! `/api/contact/group/*` (Go: `internal/controller/contact`).
 //!
-//! Ported: `create`, `import`, `export`, `delete`, `update`,
-//! `update_unsubscribe`, `list`, `all`, `merge_contacts`, `contact_count`,
-//! `tag_contact_count`. Still served by Go: `info` (subscription defaults;
-//! moves with the subscribe flow).
+//! Fully ported: `create`, `import`, `export`, `delete`, `update`,
+//! `update_unsubscribe`, `list`, `all`, `info`, `merge_contacts`,
+//! `contact_count`, `tag_contact_count`.
 
 use axum::Router;
 use axum::extract::State;
@@ -40,6 +39,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/api/contact/group/list", get(list))
         .route("/api/contact/group/all", get(all))
+        .route("/api/contact/group/info", get(info))
         .route("/api/contact/group/merge_contacts", post(merge))
         .route("/api/contact/group/contact_count", post(contact_count))
         .route(
@@ -626,6 +626,83 @@ async fn all(
             .i18n
             .tr(&lang, "Get all contact groups successfully", &[]),
         GroupList { list },
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct InfoQuery {
+    #[serde(default, deserialize_with = "opt_i64")]
+    group_id: Option<i64>,
+}
+
+/// A group with its subscription settings, filling unset ones with the
+/// defaults the subscribe flow uses (the console shows them as such).
+async fn info(
+    State(state): State<AppState>,
+    Lang(lang): Lang,
+    ApiQuery(q): ApiQuery<InfoQuery>,
+) -> Result<ApiResponse<GroupListItem>, ApiError> {
+    use crate::templates::{Kind, default_mail, subscribe_form_code};
+    let id = validate::id("group_id", q.group_id)?;
+    let pg = &state.store.pg;
+    ferropost_store::groups::backfill_tokens(pg).await?;
+    let mut g = ferropost_store::groups::get(pg, id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(state.i18n.tr(&lang, "Group not found", &[])))?;
+    let host = crate::base_url::global(&state).await;
+
+    let fill = |value: &mut String, default: String| {
+        if value.is_empty() {
+            *value = default;
+        }
+    };
+    if g.welcome_mail_html.is_empty() {
+        (g.welcome_mail_html, g.welcome_mail_drag) = default_mail(&state, Kind::Welcome);
+    }
+    if g.confirm_mail_html.is_empty() {
+        (g.confirm_mail_html, g.confirm_mail_drag) = default_mail(&state, Kind::Confirm);
+    }
+    if g.unsubscribe_mail_html.is_empty() {
+        (g.unsubscribe_mail_html, g.unsubscribe_mail_drag) =
+            default_mail(&state, Kind::Unsubscribe);
+    }
+    fill(&mut g.success_url, format!("{host}/subscribe_success.html"));
+    fill(&mut g.confirm_url, format!("{host}/subscribe_confirm.html"));
+    fill(
+        &mut g.already_url,
+        format!("{host}/already_subscribed.html"),
+    );
+    fill(
+        &mut g.unsubscribe_redirect_url,
+        format!("{host}/unsubscribe_success.html"),
+    );
+    fill(
+        &mut g.subscribe_form,
+        subscribe_form_code(&state, &host, &g.token),
+    );
+    fill(&mut g.welcome_subject, "Welcome Aboard!".to_owned());
+    fill(
+        &mut g.confirm_subject,
+        "Confirm Your Subscription".to_owned(),
+    );
+    fill(&mut g.unsubscribe_subject, "You're unsubscribed".to_owned());
+
+    let domain = ferropost_store::subscriptions::default_sender_domain(pg)
+        .await?
+        .unwrap_or_default();
+    let subscribe_link = format!("{host}/subscribe_form.html?token={}", g.token);
+    Ok(ApiResponse::ok(
+        state
+            .i18n
+            .tr(&lang, "Group info retrieved successfully", &[]),
+        GroupListItem {
+            group: g,
+            total_count: 0,
+            active_count: 0,
+            unsubscribe_count: 0,
+            subscribe_link,
+            sender: format!("noreply@{domain}"),
+        },
     ))
 }
 

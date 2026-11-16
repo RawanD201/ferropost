@@ -9,6 +9,7 @@
 pub mod access_log;
 pub mod audit;
 pub mod auth;
+pub mod base_url;
 pub mod body;
 pub mod conn;
 pub mod de;
@@ -21,6 +22,8 @@ pub mod proxy;
 pub mod rbac;
 pub mod routes;
 pub mod state;
+pub mod system_mail;
+pub mod templates;
 pub mod validate;
 
 use axum::Router;

@@ -187,8 +187,21 @@ async fn end_to_end() {
         (StatusCode::OK, json!("Invalid -1")),
         "tracking links stay public and are served natively"
     );
-    let r = call(&gated, "/api/unsubscribe", &[], false).await;
-    assert_eq!(r.body["go"], true, "unsubscribe stays public");
+    let r = send(
+        &gated,
+        "POST",
+        "/api/unsubscribe",
+        &[],
+        Some(json!({})),
+        false,
+    )
+    .await;
+    assert_eq!(
+        (r.body["code"].clone(), r.body.get("go")),
+        (json!(412), None),
+        "unsubscribe stays public and is served natively: {}",
+        r.body
+    );
 
     let api_token = bearer(&token(1, "api_token", "api-1"));
     let r = call(
@@ -226,8 +239,18 @@ async fn end_to_end() {
     .await;
     assert_eq!(r.status, StatusCode::FORBIDDEN);
     assert_eq!(r.body, "IP not allowed");
-    let r = call(&listed, "/api/unsubscribe", &[], false).await;
-    assert_eq!(r.body["go"], true, "public paths bypass the whitelist");
+    let r = call(&listed, "/unsubscribe.html", &[], false).await;
+    assert_eq!(r.body["go"], true, "public pages bypass the whitelist");
+    let r = send(
+        &listed,
+        "POST",
+        "/api/unsubscribe",
+        &[],
+        Some(json!({})),
+        false,
+    )
+    .await;
+    assert_eq!(r.body["code"], 412, "public routes bypass the whitelist");
 
     sqlx::query("INSERT INTO bm_console_ip_whitelist (ip) VALUES ('203.0.113.0/24')")
         .execute(&h.store.pg)

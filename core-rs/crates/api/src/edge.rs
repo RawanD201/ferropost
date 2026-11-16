@@ -195,11 +195,16 @@ async fn ip_allowed(state: &AppState, ip: IpAddr) -> bool {
         Err(err) => tracing::error!(error = %format!("{err:#}"), "load IP whitelist"),
     }
 
-    let server_ip = match state.config.server_ip {
+    server_public_ip(state).await == Some(ip)
+}
+
+/// The server's public address: `FERROPOST_SERVER_IP`, else looked up
+/// online once an hour.
+pub(crate) async fn server_public_ip(state: &AppState) -> Option<IpAddr> {
+    match state.config.server_ip {
         Some(configured) => Some(configured),
         None => state.caches.server_ip.get_with((), fetch_public_ip()).await,
-    };
-    server_ip == Some(ip)
+    }
 }
 
 /// Whitelist entries are single addresses; CIDR ranges are accepted too.

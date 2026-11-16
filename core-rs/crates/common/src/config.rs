@@ -47,6 +47,11 @@ pub struct Config {
     /// Container whose `postqueue` reports the deferred queue; `none`
     /// disables the lookup.
     pub postfix_container: String,
+    /// Postfix SMTP for outgoing mail (`postfix:25` in the container).
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    /// Email templates shipped with the core (`<root>/template`).
+    pub template_dir: PathBuf,
 }
 
 impl Config {
@@ -172,6 +177,10 @@ impl Config {
             timezone: var("TZ").unwrap_or_else(|| "UTC".to_owned()),
             postfix_container: var("FERROPOST_POSTFIX_CONTAINER")
                 .unwrap_or_else(|| "postfix-billionmail".to_owned()),
+            smtp_host: var("FERROPOST_SMTP_HOST")
+                .unwrap_or_else(|| if in_container { "postfix" } else { "localhost" }.to_owned()),
+            smtp_port: parse_or(var("FERROPOST_SMTP_PORT"), 25)?,
+            template_dir: root.join("template"),
             access_log_dir: var("FERROPOST_ACCESS_LOG_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("logs")),

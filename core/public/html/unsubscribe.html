@@ -140,7 +140,7 @@
     var params;
     window.onload = function () {
         params = getQueryParams();
-        requestType({ email: this.params.email });
+        requestType({ email: params.email, jwt: params.jwt });
     };
 
     function renderType(data) {

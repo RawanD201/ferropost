@@ -136,6 +136,33 @@ pub fn html_to_text(html: &str) -> String {
     out.join("\n").trim().to_owned()
 }
 
+/// Credentials for a new mailbox, stored the way Go stores them: a Dovecot
+/// MD5-CRYPT hash (`$1$...`) and the reversible hex-of-base64 copy.
+pub fn mailbox_credentials(password: &str) -> Result<(String, String)> {
+    use base64::Engine;
+    // Weak, but it is Dovecot's configured `default_pass_scheme` and what
+    // Go and Roundcube write; moving every mailbox to SHA512-CRYPT is part
+    // of the mailbox work (step 5).
+    #[allow(deprecated)]
+    let hash = pwhash::md5_crypt::hash(password).context("md5-crypt")?;
+    let encoded = base64::engine::general_purpose::STANDARD
+        .encode(password)
+        .bytes()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    Ok((hash, encoded))
+}
+
+/// A random 16-character password (Go: `grand.S(16)`).
+pub fn random_password() -> String {
+    use rand::Rng;
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut rng = rand::rngs::OsRng;
+    (0..16)
+        .map(|_| char::from(CHARS[rng.gen_range(0..CHARS.len())]))
+        .collect()
+}
+
 /// Go stored mailbox passwords as hex of base64 of the password, so the
 /// core can log in as the mailbox (not a hash; see the README).
 pub fn decode_mailbox_password(encoded: &str) -> Result<String> {
@@ -264,5 +291,15 @@ mod tests {
             "s3cret!"
         );
         assert!(decode_mailbox_password("zz").is_err());
+
+        let (hash, encoded) = mailbox_credentials("s3cret!").expect("credentials");
+        assert!(hash.starts_with("$1$"));
+        assert!(pwhash::md5_crypt::verify("s3cret!", &hash));
+        assert_eq!(encoded, "637a4e6a636d563049513d3d");
+        assert_eq!(
+            decode_mailbox_password(&encoded).expect("roundtrip"),
+            "s3cret!"
+        );
+        assert_eq!(random_password().len(), 16);
     }
 }

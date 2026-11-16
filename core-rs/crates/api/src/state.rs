@@ -44,6 +44,9 @@ pub struct Caches {
     pub server_ip: Cache<(), Option<IpAddr>>,
     /// Postfix deferred-queue size (Go cached it for 120 seconds too).
     pub deferred_queue: Cache<(), i64>,
+    /// Public base URL per sender domain (`""` for the global one).
+    pub base_urls: Cache<String, String>,
+    pub token_keys: Cache<(), ferropost_sender::tokens::TokenKeys>,
 }
 
 impl Caches {
@@ -55,6 +58,8 @@ impl Caches {
             default_language: ttl_cache(Duration::from_secs(30), 1),
             server_ip: ttl_cache(Duration::from_secs(3600), 1),
             deferred_queue: ttl_cache(Duration::from_secs(120), 1),
+            base_urls: ttl_cache(Duration::from_secs(300), 10_000),
+            token_keys: ttl_cache(Duration::from_secs(300), 1),
         }
     }
 }
@@ -102,5 +107,32 @@ impl Deref for AppState {
 
     fn deref(&self) -> &Inner {
         &self.0
+    }
+}
+
+impl AppState {
+    /// Secrets for unsubscribe/subscribe links: a random current secret
+    /// (created on first use) and Go's stored secrets for its links.
+    pub async fn token_keys(&self) -> Result<ferropost_sender::tokens::TokenKeys> {
+        let pg = self.store.pg.clone();
+        self.caches
+            .token_keys
+            .try_get_with((), async move {
+                let current = ferropost_store::options::get_or_init(
+                    &pg,
+                    "ferropost_token_secret",
+                    &ferropost_sender::tokens::new_secret(),
+                )
+                .await?;
+                let mut legacy = Vec::new();
+                for name in ["unsubscribe_jwt_secret", "subscribe_confirm_jwt_secret"] {
+                    if let Some(secret) = ferropost_store::options::get(&pg, name).await? {
+                        legacy.push(secret);
+                    }
+                }
+                Ok::<_, anyhow::Error>(ferropost_sender::tokens::TokenKeys { current, legacy })
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e:#}"))
     }
 }

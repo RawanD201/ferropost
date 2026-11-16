@@ -13,6 +13,7 @@ axum.workspace = true
 bollard.workspace = true
 ferropost-common.workspace = true
 ferropost-domain.workspace = true
+ferropost-sender.workspace = true
 ferropost-store.workspace = true
 futures-util.workspace = true
 chrono.workspace = true
@@ -37,8 +38,11 @@ tracing.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 fred.workspace = true
+mail-parser = "1"
 md-5.workspace = true
+pwhash.workspace = true
 sqlx.workspace = true
 tempfile = "3"
 tracing-subscriber.workspace = true

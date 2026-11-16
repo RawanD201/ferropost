@@ -8,6 +8,7 @@ mod contacts;
 mod email_template;
 mod operation_log;
 mod overview;
+mod subscriptions;
 mod tags;
 mod tracking;
 
@@ -40,7 +41,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route_layer(from_fn_with_state(state, auth::require_auth));
 
     // Public routes: reached by recipients and other servers, not the console.
-    let public = Router::new().merge(tracking::routes());
+    let public = Router::new()
+        .merge(tracking::routes())
+        .merge(subscriptions::routes());
 
     Router::new().merge(authenticated).merge(public)
 }
