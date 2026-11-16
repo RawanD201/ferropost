@@ -436,6 +436,11 @@ These are security fixes that keep the frontend working unchanged:
   dedicated IP's transport is really deleted (Go looked for `domain`, but
   `bm.sh` stores `@domain`), and applying with none left removes the old
   transports from `master.cf`.
+- **Video outreach is gone** (`/api/video_outreach/*`, `/landing/video`
+  and its job, in Go and in the console). It needed ffmpeg, Node
+  Playwright and Anthropic, Cartesia, SyncLabs and Cloudflare R2 keys that
+  no install provides. Templates using `.VideoOutreach.*` still render
+  from contact attributes.
 - **Domains:** the list no longer sends every domain's TLS private key,
   and `all` marks the default domain (Go never did, so the campaign form
   could not preselect it). An update changes only what it is given: Go
@@ -497,5 +502,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted
 6. Switch off Go; move schema ownership to sqlx migrations

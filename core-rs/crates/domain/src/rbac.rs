@@ -28,7 +28,6 @@ pub const MODULES: &[&str] = &[
     "operation_log",
     "askai",
     "tags",
-    "video_outreach",
 ];
 
 /// Role name that bypasses every permission check.
@@ -161,12 +160,6 @@ mod tests {
             ),
             ("/api/askai/list", "askai", "read", "askai"),
             ("/api/tags/list", "tags", "read", "tags"),
-            (
-                "/api/video_outreach/list",
-                "video_outreach",
-                "read",
-                "video_outreach",
-            ),
             ("/api/domains/sync", "domains", "sync", "domains"),
             ("/api/relay/test", "relay", "test", "relay"),
             ("", "", "", ""),

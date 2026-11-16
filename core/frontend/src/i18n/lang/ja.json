@@ -102,8 +102,7 @@
 			"error_logs": "Error Logs",
 			"sequences": "Sequences",
 			"leads": "Leads",
-			"enrichment": "Enrichment",
-			"videoOutreach": "ビデオアウトリーチ"
+			"enrichment": "Enrichment"
 		}
 	},
 	"login": {

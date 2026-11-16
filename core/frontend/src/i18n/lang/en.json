@@ -111,8 +111,7 @@
 			"error_logs": "Error Logs",
 			"sequences": "Sequences",
 			"leads": "Leads",
-			"enrichment": "Enrichment",
-			"videoOutreach": "Video Outreach"
+			"enrichment": "Enrichment"
 		}
 	},
 	"login": {

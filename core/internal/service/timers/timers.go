@@ -13,7 +13,6 @@ import (
 	"billionmail-core/internal/service/maillog_stat"
 	"billionmail-core/internal/service/multi_ip_domain"
 	"billionmail-core/internal/service/relay"
-	"billionmail-core/internal/service/video_gen"
 	"billionmail-core/internal/service/warmup"
 	"context"
 	"os"
@@ -225,11 +224,6 @@ func Start(ctx context.Context) (err error) {
 			relay.EnsurePostfixConfExists(ctx)
 		})
 	}
-
-	// Video generation pipeline orchestrator
-	gtimer.Add(30*time.Second, func() {
-		video_gen.ProcessVideoJobs(ctx)
-	})
 
 	// Check the domain name blacklist
 	if !OwnedByRust("blacklist") {

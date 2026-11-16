@@ -2,7 +2,6 @@ package batch_mail
 
 import (
 	"billionmail-core/internal/model/entity"
-	"billionmail-core/internal/service/video_outreach"
 	"context"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gview"
@@ -113,7 +112,7 @@ func (e *TemplateEngine) RenderEmailTemplateWithAPI(ctx context.Context, content
 	if contact != nil && contact.Attribs != nil {
 		signals := contact.Attribs["lead_signals"]
 		enrichmentData["Signals"] = signals
-		copies := video_outreach.SignalsToCopy(signals)
+		copies := SignalsToCopy(signals)
 		enrichmentData["SignalCount"] = len(copies)
 		if len(copies) > 0 {
 			enrichmentData["TopSignal"] = copies[0]

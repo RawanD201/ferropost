@@ -22,7 +22,6 @@ import (
 	"billionmail-core/internal/controller/settings"
 	"billionmail-core/internal/controller/subscribe_list"
 	"billionmail-core/internal/controller/tags"
-	video_outreach_ctrl "billionmail-core/internal/controller/video_outreach"
 	"billionmail-core/internal/service/database_initialization"
 	docker "billionmail-core/internal/service/dockerapi"
 	"billionmail-core/internal/service/maillog_stat"
@@ -341,12 +340,8 @@ var (
 					operation_log.NewV1(),
 					askai.NewV1(),
 					tags.NewV1(),
-					video_outreach_ctrl.NewV1(),
 				)
 			})
-
-			// Public video landing page (no auth — recipients click from email)
-			s.BindHandler("GET:/landing/video", video_outreach_ctrl.ServeLandingPage)
 
 			// SPA fallback
 
