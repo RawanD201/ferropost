@@ -139,7 +139,14 @@ pub async fn forward(State(state): State<AppState>, req: Request) -> Response {
         .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |c| c.0);
     let is_api = req.uri().path().starts_with("/api/");
 
-    match state.upstream.send(req, ip, tls).await {
+    let Some(upstream) = &state.upstream else {
+        return if is_api {
+            ApiError::NotFound("not found".to_owned()).into_response()
+        } else {
+            StatusCode::NOT_FOUND.into_response()
+        };
+    };
+    match upstream.send(req, ip, tls).await {
         Ok(response) => response,
         Err(err) => {
             tracing::error!(error = %err, "go core unreachable");

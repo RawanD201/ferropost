@@ -256,8 +256,14 @@ async fn end_to_end() {
     .await;
     assert_eq!(r.status, StatusCode::FORBIDDEN);
     assert_eq!(r.body, "IP not allowed");
+    std::fs::create_dir_all(h.core_dir().join("public/html")).expect("html");
+    std::fs::write(
+        h.core_dir().join("public/html/unsubscribe.html"),
+        "<p>bye</p>",
+    )
+    .expect("page");
     let r = call(&listed, "/unsubscribe.html", &[], false).await;
-    assert_eq!(r.body["go"], true, "public pages bypass the whitelist");
+    assert_eq!(r.body, "<p>bye</p>", "public pages bypass the whitelist");
     let r = send(
         &listed,
         "POST",
@@ -316,8 +322,14 @@ async fn end_to_end() {
     )
     .await;
     assert_eq!(r.body["code"], 503);
+    std::fs::create_dir_all(h.core_dir().join("public/dist")).expect("dist");
+    std::fs::write(h.core_dir().join("public/dist/index.html"), "<div id=app>").expect("index");
     let r = call(&down, "/dashboard", &[], false).await;
-    assert_eq!(r.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        (r.status, r.body.as_str()),
+        (StatusCode::OK, Some("<div id=app>")),
+        "the console no longer needs Go"
+    );
 }
 
 fn md5_hex(input: &str) -> String {

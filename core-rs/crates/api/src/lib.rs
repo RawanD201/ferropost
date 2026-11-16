@@ -2,9 +2,9 @@
 //!
 //! Every request passes through [`edge::edge`] (client IP, base path, IP
 //! whitelist, safe entrance, access log). Routes already ported to Rust are
-//! served natively; everything else falls through to [`proxy::forward`], which
-//! hands it to the Go core. Porting a domain means adding its routes here, and
-//! the Go version simply stops receiving that traffic.
+//! served natively, the console's files by [`static_files::fallback`], and
+//! Roundcube through PHP-FPM ([`webmail`]). Only Go's API documentation
+//! still goes to the Go core ([`proxy::forward`]) while it runs.
 
 pub mod access_log;
 pub mod acme;
@@ -28,6 +28,7 @@ pub mod domains;
 pub mod edge;
 pub mod envelope;
 pub mod export;
+pub mod fastcgi;
 pub mod fsio;
 pub mod lang;
 pub mod mail_tls;
@@ -43,9 +44,11 @@ pub mod routes;
 pub mod rspamd;
 pub mod service_config;
 pub mod state;
+pub mod static_files;
 pub mod system_mail;
 pub mod templates;
 pub mod validate;
+pub mod webmail;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
@@ -56,7 +59,7 @@ pub use state::AppState;
 /// Builds the complete application.
 pub fn app(state: AppState) -> Router {
     let router: Router = routes::router(state.clone())
-        .fallback(proxy::forward)
+        .fallback(static_files::fallback)
         .with_state(state.clone());
 
     // The edge layer wraps the whole router (rather than being added with

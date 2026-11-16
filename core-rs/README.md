@@ -85,6 +85,7 @@ everything. supervisord sets it for both programs.
 | `/api/askai/supplier/*` (all 15 routes) | AI providers and their models, in Go's files under `conf/supplier/` (built-in providers copied from the templates). |
 | `/api/askai/project/*` (all 23 routes), `/media/*` (public) | AskAI brand projects in Go's files under `conf/askai/`: details, company profile, style, sitemap, footer, prompt, knowledge base and images. Images are stored and served here. |
 | `/api/askai/chat/*` (all 9 routes) | AskAI chats designing email templates, streamed as server-sent events, in Go's files under `conf/chat/`. Go's AskAI code is removed. |
+| Console files, `/roundcube/*` | The built console (`public/dist`), the subscription pages (`public/html`) and `index.html` for the console's own routes; Roundcube through PHP-FPM's FastCGI socket. Only Go's API docs (`/swagger`, `/api.json`) still go to Go while it runs. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -104,7 +105,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 |---|---|---|
 | `FERROPOST_ROOT` | current dir | Core directory (`languages/`, `public/`, `logs/`) |
 | `FERROPOST_ENV_FILE` | `$FERROPOST_ROOT/../.env` | Shared env file |
-| `FERROPOST_GO_UPSTREAM` | `http://127.0.0.1:8181` | Go core in internal mode |
+| `FERROPOST_GO_UPSTREAM` | `http://127.0.0.1:8181` | Go core in internal mode; `none` once Go is gone |
 | `FERROPOST_DATABASE_URL` | unix socket `../postgresql-socket` | Override for development |
 | `FERROPOST_REDIS_URL` | `redis:6379` (container) / `127.0.0.1:26379` | Override for development |
 | `FERROPOST_HTTP_PORT` / `FERROPOST_HTTPS_PORT` | `.env` values, then 80/443 | Listener ports |
@@ -122,6 +123,8 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_RSPAMD_CONTAINER` | `rspamd-billionmail` | Restarted when DKIM keys or signing change (`none` disables) |
 | `FERROPOST_CORE_CONTAINER` | `core-billionmail` | This container, restarted for the API docs switch (`none` disables) |
 | `FERROPOST_FETCH_PRIVATE` | off | Lets AskAI fetch private addresses (development and tests only) |
+| `FERROPOST_PHP_FPM_SOCKET` | `$FERROPOST_ROOT/../php-sock/php-fpm.sock` | PHP-FPM serving Roundcube |
+| `FERROPOST_WEBMAIL_ROOT` / `FERROPOST_WEBMAIL_SCRIPT_ROOT` | `$FERROPOST_ROOT/../webmail-data` / `/var/www/html` | Roundcube's files here and as PHP-FPM sees them |
 | `FERROPOST_DOCKER` | on | `none` keeps every call away from the Docker socket (tests, development) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
 | `FERROPOST_SMTP_HOST` / `FERROPOST_SMTP_PORT` | `postfix` (container) / `localhost`, 25 | Where subscription mail is submitted |
@@ -484,6 +487,16 @@ These are security fixes that keep the frontend working unchanged:
   before they become folder names (Go's `../` reached, and removing a chat
   deleted, any folder); a provider error is shown in the chat, and a
   failed answer is not kept in the history.
+- **Console files:** built assets under `/static/` (their names carry a
+  content hash) are cached for a year; everything else is revalidated
+  with an ETag. Unknown `/api/` routes answer with an envelope.
+- **Roundcube:** its private folders (`config`, `temp`, `logs`, `bin`,
+  `SQL`, `installer`), hidden files and README/composer files are refused,
+  as its own web server guide does; Go served them, Roundcube's logs
+  included. PHP sees the visitor's address (Go passed its own, so
+  Roundcube's per-address protections saw one client) and this server's
+  port (Go passed the visitor's); a `Proxy` request header is dropped
+  (httpoxy); responses stream instead of being buffered whole.
 - **Start-up:** `ferropost` applies the schema migrations, syncs the
   administrator's login from `ADMIN_USERNAME`/`ADMIN_PASSWORD` (what
   `bm.sh change-password` relies on; the password is hashed again only
@@ -562,4 +575,4 @@ These are security fixes that keep the frontend working unchanged:
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
 5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted (done)
-6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files, Roundcube and the API docs; the image without Go
+6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files and Roundcube (done); the image without Go

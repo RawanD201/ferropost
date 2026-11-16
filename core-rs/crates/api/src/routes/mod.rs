@@ -97,6 +97,13 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(sign_in::public_routes())
         // Authenticated by its own cookie (an iframe sends no token).
         .merge(crate::rspamd::routes())
+        // Roundcube (PHP-FPM).
+        .route("/roundcube", axum::routing::any(crate::webmail::handle))
+        .route("/roundcube/", axum::routing::any(crate::webmail::handle))
+        .route(
+            "/roundcube/{*rest}",
+            axum::routing::any(crate::webmail::handle),
+        )
         // AskAI's brand images, which mail clients load.
         .route(
             "/media/{file}",

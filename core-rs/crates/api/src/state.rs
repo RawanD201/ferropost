@@ -24,7 +24,8 @@ pub struct Inner {
     pub store: Store,
     pub i18n: Translator,
     pub jwt: JwtVerifier,
-    pub upstream: Upstream,
+    /// The Go core, while it still runs (`FERROPOST_GO_UPSTREAM=none`: gone).
+    pub upstream: Option<Upstream>,
     /// rspamd's controller (its web interface).
     pub rspamd: Upstream,
     pub access_log: AccessLog,
@@ -114,7 +115,10 @@ impl AppState {
         Ok(Self(Arc::new(Inner {
             i18n: Translator::new(config.root.join("languages")),
             jwt: JwtVerifier::new(&config.jwt_secret),
-            upstream: Upstream::new(&config.go_upstream)?,
+            upstream: match config.go_upstream.trim() {
+                "" | "none" => None,
+                base => Some(Upstream::new(base)?),
+            },
             rspamd: Upstream::new(&config.rspamd_url)?,
             access_log,
             caches: Caches::new(),
