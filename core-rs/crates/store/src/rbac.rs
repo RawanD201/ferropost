@@ -151,3 +151,13 @@ pub async fn set_login(
     .await?;
     Ok(())
 }
+
+/// An account's email address.
+pub async fn email_of(pg: &PgPool, account_id: i64) -> Result<Option<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT email FROM account WHERE account_id = $1")
+            .bind(account_id as i32)
+            .fetch_optional(pg)
+            .await?,
+    )
+}

@@ -7,6 +7,7 @@
 //! the Go version simply stops receiving that traffic.
 
 pub mod access_log;
+pub mod acme;
 pub mod api_mail;
 pub mod audit;
 pub mod auth;
@@ -24,6 +25,7 @@ pub mod envelope;
 pub mod export;
 pub mod fsio;
 pub mod lang;
+pub mod mail_tls;
 pub mod mailbox_jobs;
 pub mod maildir;
 pub mod postfix;

@@ -375,7 +375,12 @@ async fn settings() {
         ssl_set(String::new(), String::new()).await["msg"],
         "Certificate deleted successfully"
     );
-    assert!(!ssl_dir.join("cert.pem").exists() && !ssl_dir.join("key.pem").exists());
+    let replacement = std::fs::read_to_string(ssl_dir.join("cert.pem")).expect("replaced");
+    let info = config(&app, auth).await;
+    assert_eq!(
+        info["ssl"]["issuer"], info["ssl"]["subject"],
+        "a self-signed certificate keeps Postfix and Dovecot running: {replacement}"
+    );
     assert!(!audit_text(&h).await.contains("PRIVATE KEY"));
 
     // --- API token ------------------------------------------------------------------

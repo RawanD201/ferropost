@@ -82,6 +82,7 @@ async fn run() -> Result<()> {
     jobs.extend(ferropost_api::mailbox_jobs::spawn(&state, stop_rx.clone()));
     jobs.extend(ferropost_api::relay::spawn(&state, stop_rx.clone()));
     jobs.extend(ferropost_api::postfix::spawn(&state, stop_rx.clone()));
+    jobs.extend(ferropost_api::mail_tls::spawn(&state, stop_rx.clone()));
     let watcher = {
         let graceful = graceful.clone();
         move || graceful.watcher()

@@ -7,6 +7,7 @@
 pub mod abnormal;
 pub mod audit;
 pub mod campaigns;
+pub mod certs;
 pub mod contacts;
 pub mod domains;
 pub mod groups;

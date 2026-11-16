@@ -22,6 +22,7 @@ mod relay;
 mod send_api;
 mod settings;
 mod sign_in;
+mod ssl;
 mod subscription_form;
 pub(crate) mod subscriptions;
 mod tags;
@@ -59,6 +60,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(mail_bcc::routes())
         .merge(mail_forward::routes())
         .merge(postfix_queue::routes())
+        .merge(ssl::routes())
         .merge(docker_api::routes())
         .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it
@@ -87,6 +89,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(sign_in::public_routes())
         // Authenticated by its own cookie (an iframe sends no token).
         .merge(crate::rspamd::routes())
+        // Let's Encrypt's HTTP-01 validation.
+        .route(
+            "/.well-known/acme-challenge/{token}",
+            axum::routing::get(crate::acme::challenge),
+        )
         // Authenticated by the API key instead of a login.
         .merge(send_api::public_routes());
 

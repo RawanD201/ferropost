@@ -48,3 +48,24 @@ pub async fn first_active(pg: &PgPool) -> Result<Option<String>> {
     .fetch_optional(pg)
     .await?)
 }
+
+/// Go's `public.FormatMX`: the configured mail host of a domain (or of a
+/// mail host itself), else `mail.<domain>`.
+pub async fn format_mx(pg: &PgPool, name: &str) -> Result<String> {
+    let configured = sqlx::query_scalar::<_, String>(
+        "SELECT a_record FROM domain WHERE (domain = $1 OR a_record = $1) AND a_record <> '' LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pg)
+    .await?;
+    Ok(configured.unwrap_or_else(|| mx_hostname_fallback(name)))
+}
+
+/// Every domain name.
+pub async fn names(pg: &PgPool) -> Result<Vec<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT domain FROM domain ORDER BY create_time, domain")
+            .fetch_all(pg)
+            .await?,
+    )
+}

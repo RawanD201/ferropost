@@ -35,6 +35,9 @@ pub struct CertInfo {
     /// `notAfter` as a Unix time.
     #[serde(skip)]
     pub expires_at: i64,
+    /// `notBefore` as a Unix time.
+    #[serde(skip)]
+    pub starts_at: i64,
 }
 
 /// The certificates in a PEM bundle, leaf first.
@@ -89,6 +92,7 @@ pub fn info(pem: &[u8], now: i64) -> Result<CertInfo> {
         version: cert.version().0 + 1,
         current: from <= now && now <= until,
         expires_at: until,
+        starts_at: from,
     })
 }
 

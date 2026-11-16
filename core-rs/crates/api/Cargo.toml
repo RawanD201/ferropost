@@ -33,6 +33,9 @@ reqwest.workspace = true
 rustls.workspace = true
 rustls-pki-types.workspace = true
 x509-parser.workspace = true
+instant-acme.workspace = true
+rsa.workspace = true
+rcgen.workspace = true
 rust_xlsxwriter.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -51,7 +54,6 @@ mail-parser = "1"
 md-5.workspace = true
 sqlx.workspace = true
 tempfile = "3"
-rcgen.workspace = true
 tracing-subscriber.workspace = true
 
 [lints]

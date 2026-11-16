@@ -48,6 +48,7 @@ everything. supervisord sets it for both programs.
 | `mailboxes` | `NormalizeMailboxes`, `InitQuotaPluginAndUpdateUsedSpace`, `UpdateMailboxesUsedSpace`, `CheckMailboxesQuotaAlerts` | At start-up lower-cases addresses and, once per install, enables Dovecot's maildir quota. Hourly: reads every `maildirsize` into `used_quota` and the domain totals, and mails 90%/95% quota alerts (once a day per level, across restarts). |
 | `relay` | `CheckRelayFirstSync`, `EnsurePostfixConfExists`, `UpdateRelayStatus` | At start-up runs Go's one-off `main.cf` migration (same marker file) and writes the relays to Postfix. Every 5 minutes tests each active relay's connection and login; the console shows the result (Go's check read a table that no longer exists). |
 | `mail_services` | `FixPostfixMainConfig` | Five seconds after start-up checks `main.cf` (server name, header checks that hide authenticated senders' IPs, a real `myhostname`) and reloads Postfix only if it changed. Go keeps `FixRspamdDKIMSigningConfig` and `FixDovecotSSLConfig` until the domains move, since they repair files the domains code writes. |
+| `ssl` | `AutoRenewSSL`, `FixDovecotSSLConfig` | Every 12 hours renews certificates this server obtained with a third of their lifetime left (uploaded ones in their last week), obtains missing mail host certificates (a failed host is retried after a day), and at start-up moves Dovecot's per-host SSL blocks after the global settings. |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -72,6 +73,7 @@ everything. supervisord sets it for both programs.
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/relay/*` (all 6 routes) | SMTP relays: list, add, edit, delete, unbound domains, connection test. Writes `master.cf`, `main.cf`, `sasl_passwd` and the pgsql maps, reloading Postfix only when they change, and rspamd's DKIM signing (relayed domains are signed by the provider). |
 | `/api/services/*`, `/api/mail_bcc/*`, `/api/mail_forward/*`, `/api/postfix_queue/*` (all 19 routes) | Mail services: the editor for Postfix's, Dovecot's and rspamd's main configuration file (checked by the service before it stays), BCC rules and their Postfix maps, mail forwarding (`alias`), the deferred queue and Postfix's queue settings. |
+| `/api/ssl/apply_cert`, `/api/ssl/console_apply_cert`, `/api/ssl/get_cert_list`, `/api/domains/set_ssl`, `/api/domains/get_ssl`, `/.well-known/acme-challenge/*` | Mail host and console certificates: Let's Encrypt over HTTP-01 (challenges answered here; Go's own still reach Go), uploads, and installation in Postfix's and Dovecot's SNI. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -104,6 +106,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `TZ` | `UTC` | Time zone of dashboard chart buckets |
 | `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
 | `FERROPOST_DOVECOT_CONTAINER` | `dovecot-billionmail` | Container where `doveadm` runs (`none` disables) |
+| `FERROPOST_ACME_DIRECTORY` | Let's Encrypt | ACME directory certificates come from (e.g. its staging directory) |
 | `FERROPOST_RSPAMD_URL` | `http://rspamd:11334` (container) / `http://127.0.0.1:21334` | rspamd's controller, behind `/rspamd/` |
 | `FERROPOST_RSPAMD_CONTAINER` | `rspamd-billionmail` | Restarted when DKIM signing changes (`none` disables) |
 | `FERROPOST_CORE_CONTAINER` | `core-billionmail` | This container, restarted for the API docs switch (`none` disables) |
@@ -349,7 +352,9 @@ These are security fixes that keep the frontend working unchanged:
   CIDR ranges, refuses changes that would lock out the caller, and switches
   off when emptied. A certificate is saved only with its own key, files are
   replaced atomically and the key is never logged (Go logged it); the server
-  picks it up within a minute instead of restarting. The alert mailbox logs
+  picks it up within a minute instead of restarting, and Postfix and Dovecot
+  are reloaded with it. Deleting it puts a self-signed certificate in its
+  place, so Postfix and Dovecot keep a default certificate. The alert mailbox logs
   in over verified TLS, its password is kept when the console sends it back
   empty (for the same server only) and its file is private.
 - **API token:** only the token issued last works, on every route including
@@ -400,6 +405,20 @@ These are security fixes that keep the frontend working unchanged:
   changed the first, which Postfix ignores when a later one exists).
   `main.cf` gets a mail host name for `myhostname` (Go used the bare first
   domain); an existing value is kept.
+- **Certificates:** Postfix's SNI table is built with `postmap -F`, which a
+  `hash:` SNI table needs (Go's plain `postmap` stored file names, so
+  Postfix always presented its default certificate). Postfix and Dovecot
+  are reloaded instead of restarted, and the core is not restarted at all
+  (Go restarted all three for every certificate); a new console certificate
+  also reaches Postfix and Dovecot, which use it as their default. A key is
+  only installed with its own certificate, private keys are owner-only (Go
+  wrote them 0755), `get_ssl` and the audit log never contain one, and the
+  new certificate and key are not also dropped in the shared `ssl/`
+  directory. Certificates are renewed with a third of their lifetime left
+  (Go: 3 days), a failed host is retried after a day (Go never retried it),
+  and a host without an address record fails before Let's Encrypt is
+  asked. Keys are RSA 2048, as Go's were. Not yet run against Let's Encrypt
+  itself: the order flow is `instant-acme`'s.
 - **rspamd interface:** Go accepted any token it had kept in its server
   session, which only held one after the browser's last call to a route Go
   served (so the interface stopped working as routes moved here) and kept
@@ -421,5 +440,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

@@ -55,6 +55,9 @@ pub struct Config {
     /// rspamd's controller, which serves its web interface
     /// (`FERROPOST_RSPAMD_URL`).
     pub rspamd_url: String,
+    /// ACME directory certificates come from (`FERROPOST_ACME_DIRECTORY`,
+    /// Let's Encrypt by default).
+    pub acme_directory: String,
     /// Time zone of dashboard charts (`TZ`, as docker-compose sets it).
     pub timezone: String,
     /// Container whose `postqueue` reports the deferred queue; `none`
@@ -205,6 +208,8 @@ impl Config {
             rspamd_data_dir: root.join("../rspamd-data"),
             rspamd_container: var("FERROPOST_RSPAMD_CONTAINER")
                 .unwrap_or_else(|| "rspamd-billionmail".to_owned()),
+            acme_directory: var("FERROPOST_ACME_DIRECTORY")
+                .unwrap_or_else(|| "https://acme-v02.api.letsencrypt.org/directory".to_owned()),
             rspamd_url: var("FERROPOST_RSPAMD_URL").unwrap_or_else(|| {
                 if in_container {
                     "http://rspamd:11334"

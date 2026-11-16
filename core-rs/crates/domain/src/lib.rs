@@ -20,6 +20,7 @@ pub mod send_api;
 pub mod settings;
 pub mod tags;
 pub mod templates;
+pub mod tls;
 pub mod tracking;
 pub mod warmup;
 pub mod web;

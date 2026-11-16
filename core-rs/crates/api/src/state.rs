@@ -60,6 +60,8 @@ pub struct Caches {
     pub relay_status: Cache<i64, crate::relay::Status>,
     /// Published SPF record per domain (`None`: none found).
     pub spf_records: Cache<String, Option<String>>,
+    /// HTTP-01 key authorizations by token, while an order is validated.
+    pub acme_challenges: Cache<String, String>,
 }
 
 impl Caches {
@@ -77,6 +79,7 @@ impl Caches {
             compose_dir: ttl_cache(Duration::from_secs(3600), 1),
             relay_status: ttl_cache(Duration::from_secs(900), 10_000),
             spf_records: ttl_cache(Duration::from_secs(180), 10_000),
+            acme_challenges: ttl_cache(Duration::from_secs(600), 1_000),
         }
     }
 }

@@ -80,19 +80,18 @@ async fn set(
     ApiBody(body): ApiBody<SslBody>,
 ) -> Result<ApiResponse<()>, ApiError> {
     let tr = |msg: &str, args: &[&dyn std::fmt::Display]| state.i18n.tr(&lang, msg, args);
-    let (cert_path, key_path) = paths(&state);
+    let (_, key_path) = paths(&state);
     let (cert, key) = (body.cert.trim(), body.key.trim());
 
     if cert.is_empty() && key.is_empty() {
-        for path in [&cert_path, &key_path] {
-            match std::fs::remove_file(path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(anyhow::anyhow!("remove {}: {e}", path.display()).into()),
-            }
-        }
+        // Postfix and Dovecot use the console's certificate as their own
+        // default: a self-signed one takes its place rather than none.
+        crate::mail_tls::reset_console(&state).await?;
         audit
-            .record(LogType::Settings, "SSL certificate deleted successfully")
+            .record(
+                LogType::Settings,
+                "SSL certificate deleted successfully (a self-signed certificate replaces it)",
+            )
             .await;
         return Ok(ApiResponse::ok(
             tr("Certificate deleted successfully", &[]),
@@ -117,17 +116,7 @@ async fn set(
     crate::certs::check_pair(cert.as_bytes(), key.as_bytes()).map_err(|e| {
         ApiError::Validation(tr("Invalid private key data: {}", &[&format!("{e:#}")]))
     })?;
-
-    let dir = state.config.ssl_dir.clone();
-    let cert = format!("{cert}\n");
-    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-        std::fs::create_dir_all(&dir)?;
-        crate::fsio::write_atomic(&key_path, key.as_bytes(), 0o600)?;
-        crate::fsio::write_atomic(&cert_path, cert.as_bytes(), 0o644)
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("write certificate: {e}"))?
-    .map_err(|e| anyhow::anyhow!("write certificate: {e}"))?;
+    crate::mail_tls::install_console(&state, &format!("{cert}\n"), &key).await?;
 
     audit
         .record(

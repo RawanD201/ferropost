@@ -100,7 +100,9 @@ func Start(ctx context.Context) (err error) {
 			mail_service.FixPostfixMainConfig(ctx)
 		}
 		mail_service.FixRspamdDKIMSigningConfig(ctx)
-		mail_service.FixDovecotSSLConfig(ctx)
+		if !OwnedByRust("ssl") {
+			mail_service.FixDovecotSSLConfig(ctx)
+		}
 	})
 
 	// ========== Mail task processing: one executor per task ==========
@@ -126,14 +128,16 @@ func Start(ctx context.Context) (err error) {
 			relay.UpdateRelayStatus(ctx)
 		})
 	}
-	// 续签证书 首次启动先运行一次
-	gtimer.AddOnce(1*time.Second, func() {
-		domains.AutoRenewSSL(ctx)
-	})
+	// Renew certificates, once at start-up, unless the Rust core does.
+	if !OwnedByRust("ssl") {
+		gtimer.AddOnce(1*time.Second, func() {
+			domains.AutoRenewSSL(ctx)
+		})
 
-	gtimer.Add(24*time.Hour, func() {
-		domains.AutoRenewSSL(ctx)
-	})
+		gtimer.Add(24*time.Hour, func() {
+			domains.AutoRenewSSL(ctx)
+		})
+	}
 
 	if !OwnedByRust("api_mail") {
 		gtimer.Add(1*time.Minute, func() {
