@@ -3,7 +3,6 @@ package cmd
 import (
 	"billionmail-core/internal/consts"
 	"billionmail-core/internal/controller/abnormal_recipient"
-	"billionmail-core/internal/controller/askai"
 	"billionmail-core/internal/controller/batch_mail"
 	"billionmail-core/internal/controller/campaign"
 	"billionmail-core/internal/controller/contact"
@@ -338,7 +337,6 @@ var (
 					settings.NewV1(),
 					subscribe_list.NewV1(),
 					operation_log.NewV1(),
-					askai.NewV1(),
 					tags.NewV1(),
 				)
 			})

@@ -1,5 +1,6 @@
 //! `/api/askai/*` (Go: `controller/askai`). See `crate::askai`.
 
+mod chat;
 mod projects;
 mod suppliers;
 
@@ -11,4 +12,5 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .merge(suppliers::routes())
         .merge(projects::routes())
+        .merge(chat::routes())
 }

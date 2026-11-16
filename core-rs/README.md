@@ -83,6 +83,7 @@ everything. supervisord sets it for both programs.
 | `/api/domain_blocklist/check`, `/api/domain_blocklist/logs` | Checks a mail host on 139 DNS blocklists in the background and serves the check's log. |
 | `/api/askai/supplier/*` (all 15 routes) | AI providers and their models, in Go's files under `conf/supplier/` (built-in providers copied from the templates). |
 | `/api/askai/project/*` (all 23 routes), `/media/*` (public) | AskAI brand projects in Go's files under `conf/askai/`: details, company profile, style, sitemap, footer, prompt, knowledge base and images. Images are stored and served here. |
+| `/api/askai/chat/*` (all 9 routes) | AskAI chats designing email templates, streamed as server-sent events, in Go's files under `conf/chat/`. Go's AskAI code is removed. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -463,6 +464,15 @@ These are security fixes that keep the frontend working unchanged:
   domains are checked before they become file names (Go's `../` reached
   any `.json` file). An uploaded logo becomes the project's logo (the
   console now shows it).
+- **AskAI chats:** the `http_request` tool fetches pages from this server
+  (public addresses only) instead of BillionMail's own service, and a
+  model may call it five times per answer (Go had no limit, so a model
+  could loop). A chat answers one question at a time (Go interleaved two
+  answers into the same files); token counts are the provider's own when
+  it reports them (Go counted streamed chunks); chat ids are checked
+  before they become folder names (Go's `../` reached, and removing a chat
+  deleted, any folder); a provider error is shown in the chat, and a
+  failed answer is not kept in the history.
 - **Video outreach is gone** (`/api/video_outreach/*`, `/landing/video`
   and its job, in Go and in the console). It needed ffmpeg, Node
   Playwright and Anthropic, Cartesia, SyncLabs and Cloudflare R2 keys that
@@ -529,5 +539,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted (done)
 6. Switch off Go; move schema ownership to sqlx migrations

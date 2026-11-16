@@ -124,3 +124,17 @@ pub async fn all(pg: &PgPool) -> Result<Vec<EmailTemplate>> {
         .fetch_all(pg)
         .await?)
 }
+
+/// Puts an AI chat's latest HTML into the template made from it (Go's
+/// `ModifyHtml`/`WriteHtml` did the same).
+pub async fn set_chat_content(pg: &PgPool, chat_id: &str, content: &str, now: i32) -> Result<u64> {
+    Ok(
+        sqlx::query("UPDATE email_templates SET content = $2, update_time = $3 WHERE chat_id = $1")
+            .bind(chat_id)
+            .bind(content)
+            .bind(now)
+            .execute(pg)
+            .await?
+            .rows_affected(),
+    )
+}

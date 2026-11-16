@@ -493,3 +493,172 @@ mod project_tests {
         }
     }
 }
+
+/// A chat's `config.json` (Go's `TempChat`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TempChat {
+    #[serde(rename = "chatId")]
+    pub chat_id: String,
+    pub domain: String,
+    pub add_type: i64,
+    pub temp_name: String,
+    pub html_content: String,
+    pub drag_data: String,
+    pub create_time: i64,
+    pub update_time: i64,
+}
+
+/// Go's `ChatUsage`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatUsage {
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub total_tokens: i64,
+}
+
+/// One message of `message.json` (Go's `Message`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatMessage {
+    #[serde(rename = "messageId")]
+    pub message_id: String,
+    #[serde(rename = "chatId")]
+    pub chat_id: String,
+    pub ppid: String,
+    pub content: String,
+    pub html_content: String,
+    pub role: String,
+    pub create_time: i64,
+    pub end_time: i64,
+    pub reasoning: String,
+    pub supplier_name: String,
+    pub model_id: String,
+    pub finish_reason: String,
+    pub usage: ChatUsage,
+    pub time_consuming: i64,
+}
+
+/// Go's `File` (never filled in).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatFile {
+    pub fid: String,
+    pub content: String,
+    pub title: String,
+    pub size: i64,
+    pub update_time: i64,
+}
+
+/// A chat's `info.json` (Go's `ChatInfo`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatInfo {
+    #[serde(rename = "chatId")]
+    pub chat_id: String,
+    pub domain: String,
+    pub prompt: String,
+    pub title: String,
+    #[serde(rename = "supplierName")]
+    pub supplier_name: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    pub messages: Vec<ChatMessage>,
+    pub files: Vec<ChatFile>,
+    pub create_time: i64,
+    pub update_time: i64,
+}
+
+/// The HTML document in a model's answer: its ```` ```html ```` block, or
+/// the text from `<!DOCTYPE html>` to the last `</html>`.
+pub fn extract_html(answer: &str) -> Option<String> {
+    let lower = answer.to_ascii_lowercase();
+    if let Some(start) = lower.find("```html") {
+        let body = &answer[start + 7..];
+        let end = body.find("```").unwrap_or(body.len());
+        let html = body[..end].trim();
+        if !html.is_empty() {
+            return Some(html.to_owned());
+        }
+    }
+    let start = lower.find("<!doctype html")?;
+    let end = lower.rfind("</html>")? + "</html>".len();
+    (end > start).then(|| answer[start..end].trim().to_owned())
+}
+
+/// Go's `DataToText` for one record: `Name: value` lines between
+/// `<Title-START>` and `<Title-END>`, empty values and inline images
+/// (`data:` URLs) left out. Empty when there is nothing to say.
+pub fn reference_block(title: &str, records: &[Vec<(&str, String)>]) -> String {
+    let mut lines = Vec::new();
+    for (i, fields) in records.iter().enumerate() {
+        let shown: Vec<String> = fields
+            .iter()
+            .filter(|(_, v)| !v.is_empty() && !v.starts_with("data:"))
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect();
+        if shown.is_empty() {
+            continue;
+        }
+        if records.len() > 1 {
+            lines.push(format!("[{}]:", i + 1));
+        }
+        lines.extend(shown);
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!("<{title}-START>\n{}\n<{title}-END>\n", lines.join("\n"))
+}
+
+#[cfg(test)]
+mod chat_tests {
+    use super::*;
+
+    #[test]
+    fn html_and_references() {
+        let answer =
+            "Here you go:\n```html\n<!DOCTYPE html>\n<html><body>Hi</body></html>\n```\nDone.";
+        assert_eq!(
+            extract_html(answer).as_deref(),
+            Some("<!DOCTYPE html>\n<html><body>Hi</body></html>")
+        );
+        let bare = "x <!DOCTYPE html><html><b>a</b></html> y";
+        assert_eq!(
+            extract_html(bare).as_deref(),
+            Some("<!DOCTYPE html><html><b>a</b></html>")
+        );
+        assert_eq!(extract_html("no html"), None);
+
+        let block = reference_block(
+            "Company Profile",
+            &[vec![
+                ("LegalCompanyName", "Acme".to_owned()),
+                ("Phone", String::new()),
+                ("Logo", "data:image/png;base64,AAAA".to_owned()),
+            ]],
+        );
+        assert_eq!(
+            block,
+            "<Company Profile-START>\nLegalCompanyName: Acme\n<Company Profile-END>\n"
+        );
+        let many = reference_block(
+            "Sitemap",
+            &[
+                vec![
+                    ("Title", "About".to_owned()),
+                    ("UriPath", "/about".to_owned()),
+                ],
+                vec![
+                    ("Title", "Blog".to_owned()),
+                    ("UriPath", "/blog".to_owned()),
+                ],
+            ],
+        );
+        assert!(many.contains("[1]:\nTitle: About\nUriPath: /about\n[2]:"));
+        assert_eq!(reference_block("Images", &[]), "");
+        let json = serde_json::to_value(ChatInfo::default()).expect("json");
+        assert!(json.get("chatId").is_some() && json.get("supplierName").is_some());
+    }
+}

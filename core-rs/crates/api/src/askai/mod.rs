@@ -1,11 +1,12 @@
 //! AskAI (Go: `service/askai`): AI providers and models (`suppliers`),
 //! brand projects (`projects`, read from the brand's site by `crawl`, with
-//! images kept by `media`).
+//! images kept by `media`) and chats designing email templates (`chat`).
 //!
 //! Everything stays in Go's files under `conf/`, so nothing is lost when
 //! switching cores, but nothing leaves this server for BillionMail's own
 //! service (`cdn.billionmail.com`) any more.
 
+pub mod chat;
 pub mod crawl;
 pub mod fetch;
 pub mod media;
