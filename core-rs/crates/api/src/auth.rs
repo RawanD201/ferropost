@@ -273,13 +273,53 @@ pub async fn require_auth(
         return Err(ApiError::Unauthorized("API token revoked".to_owned()));
     }
 
-    // `None` for an account that is disabled or gone: Go kept honouring
-    // their tokens until they expired.
-    let roles = state
+    let roles = account_roles(&state, claims.account_id)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized(String::new()))?;
+
+    // An admin's calls keep the cookie the rspamd interface needs fresh.
+    let rspamd_cookie = if roles.iter().any(|r| r == ADMIN_ROLE) {
+        let tls = req
+            .extensions()
+            .get::<crate::conn::ConnInfo>()
+            .is_some_and(|c| c.tls);
+        crate::rspamd::renewal(
+            &state,
+            req.headers(),
+            &claims,
+            tls,
+            chrono::Utc::now().timestamp(),
+        )
+    } else {
+        None
+    };
+
+    req.extensions_mut().insert(CurrentUser {
+        account_id: claims.account_id,
+        username: claims.username,
+        roles,
+        api_token: claims.api_token,
+    });
+    let mut response = next.run(req).await;
+    if let Some(cookie) = rspamd_cookie {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, cookie);
+    }
+    Ok(response)
+}
+
+/// An account's roles, cached; `None` for an account that is disabled or
+/// gone (Go kept honouring their tokens until they expired).
+pub async fn account_roles(
+    state: &AppState,
+    account_id: i64,
+) -> Result<Option<Arc<[String]>>, ApiError> {
+    state
         .caches
         .roles
-        .try_get_with(claims.account_id, async {
-            ferropost_store::rbac::account_access(&state.store.pg, claims.account_id)
+        .try_get_with(account_id, async {
+            ferropost_store::rbac::account_access(&state.store.pg, account_id)
                 .await
                 .map(|access| match access {
                     Some((1, roles)) => Some(Arc::<[String]>::from(roles)),
@@ -290,16 +330,7 @@ pub async fn require_auth(
         .map_err(|e| {
             tracing::error!(error = %format!("{e:#}"), "load account roles");
             ApiError::Unauthorized("failed to get account roles".to_owned())
-        })?
-        .ok_or_else(|| ApiError::Unauthorized(String::new()))?;
-
-    req.extensions_mut().insert(CurrentUser {
-        account_id: claims.account_id,
-        username: claims.username,
-        roles,
-        api_token: claims.api_token,
-    });
-    Ok(next.run(req).await)
+        })
 }
 
 #[cfg(test)]

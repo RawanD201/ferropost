@@ -92,6 +92,13 @@ async fn sign_in_flows() {
     }
     let r = login(&app, json!({"username": "admin", "password": PASSWORD, "validate_code_id": id, "validate_code": answer.to_uppercase()})).await;
     assert_eq!(r.body["msg"], "Login successful", "{}", r.body);
+    assert!(
+        r.headers
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|c| c.starts_with("ferropost_rspamd=") && c.contains("Path=/rspamd")),
+        "an admin's login opens the rspamd interface"
+    );
     let data = r.body["data"].clone();
     assert_eq!(
         (data["ttl"].clone(), data["accountInfo"]["username"].clone()),
@@ -259,12 +266,19 @@ async fn sign_in_flows() {
     )
     .await;
     assert_eq!(r.body["msg"], "aaPanel SSO successful", "{}", r.body);
+    let cookies: Vec<&str> = r
+        .headers
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
     assert!(
-        r.headers["set-cookie"]
-            .to_str()
-            .expect("cookie")
-            .starts_with("ferropost_entrance="),
-        "passes the safe entrance"
+        cookies.iter().any(|c| c.starts_with("ferropost_entrance=")),
+        "passes the safe entrance: {cookies:?}"
+    );
+    assert!(
+        cookies.iter().any(|c| c.starts_with("ferropost_rspamd=")),
+        "and opens the rspamd interface for an admin"
     );
     let r = send(
         &sso,

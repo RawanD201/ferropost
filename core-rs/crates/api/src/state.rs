@@ -25,6 +25,8 @@ pub struct Inner {
     pub i18n: Translator,
     pub jwt: JwtVerifier,
     pub upstream: Upstream,
+    /// rspamd's controller (its web interface).
+    pub rspamd: Upstream,
     pub access_log: AccessLog,
     pub caches: Caches,
     /// Key for signing the safe-entrance cookie.
@@ -107,6 +109,7 @@ impl AppState {
             i18n: Translator::new(config.root.join("languages")),
             jwt: JwtVerifier::new(&config.jwt_secret),
             upstream: Upstream::new(&config.go_upstream)?,
+            rspamd: Upstream::new(&config.rspamd_url)?,
             access_log,
             caches: Caches::new(),
             entrance_key,

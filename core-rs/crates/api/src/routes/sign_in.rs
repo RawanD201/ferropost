@@ -15,8 +15,8 @@ use std::sync::LazyLock;
 use axum::Extension;
 use axum::Router;
 use axum::extract::State;
-use axum::http::HeaderMap;
 use axum::http::header::SET_COOKIE;
+use axum::http::{HeaderMap, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use ferropost_domain::audit::LogType;
@@ -74,25 +74,42 @@ struct SignedIn {
     account_info: AccountInfo,
 }
 
-async fn sign_in(state: &AppState, account: LoginAccount) -> Result<SignedIn, ApiError> {
+/// Issues a session's tokens, with the rspamd interface's cookie for an
+/// admin.
+async fn sign_in(
+    state: &AppState,
+    account: LoginAccount,
+    tls: bool,
+) -> Result<(SignedIn, Option<HeaderValue>), ApiError> {
     let roles = rbac::account_role_names(&state.store.pg, account.account_id).await?;
-    let tokens = state.jwt.issue_pair(
-        account.account_id,
-        &account.username,
-        &roles,
-        &new_session_id(),
-    );
+    let sid = new_session_id();
+    let tokens = state
+        .jwt
+        .issue_pair(account.account_id, &account.username, &roles, &sid);
+    let cookie = crate::rspamd::for_new_tokens(state, account.account_id, &roles, &sid, tls);
     rbac::touch_login(&state.store.pg, account.account_id, now()).await?;
-    Ok(SignedIn {
-        tokens,
-        account_info: AccountInfo {
-            id: account.account_id,
-            username: account.username,
-            email: account.email,
-            status: account.status,
-            lang: account.language,
+    Ok((
+        SignedIn {
+            tokens,
+            account_info: AccountInfo {
+                id: account.account_id,
+                username: account.username,
+                email: account.email,
+                status: account.status,
+                lang: account.language,
+            },
         },
-    })
+        cookie,
+    ))
+}
+
+/// A response with an optional `Set-Cookie`.
+fn with_cookie(response: impl IntoResponse, cookie: Option<HeaderValue>) -> Response {
+    let mut response = response.into_response();
+    if let Some(cookie) = cookie {
+        response.headers_mut().append(SET_COOKIE, cookie);
+    }
+    response
 }
 
 fn redis_down(e: anyhow::Error) -> ApiError {
@@ -115,9 +132,10 @@ async fn login(
     State(state): State<AppState>,
     Lang(lang): Lang,
     Extension(ClientIp(ip)): Extension<ClientIp>,
+    conn: Option<Extension<ConnInfo>>,
     audit: Audit,
     ApiBody(body): ApiBody<LoginBody>,
-) -> Result<ApiResponse<SignedIn>, ApiError> {
+) -> Result<Response, ApiError> {
     let tr = |msg: &str| state.i18n.tr(&lang, msg, &[]);
     let redis = &state.store.redis;
     let client = ip.to_canonical().to_string();
@@ -171,7 +189,8 @@ async fn login(
     tokens::clear_login_failures(redis, &client)
         .await
         .map_err(redis_down)?;
-    let signed_in = sign_in(&state, account).await?;
+    let tls = conn.is_some_and(|c| c.0.tls);
+    let (signed_in, cookie) = sign_in(&state, account, tls).await?;
     audit
         .record_with(
             LogType::Login,
@@ -179,7 +198,10 @@ async fn login(
             &serde_json::json!({"account_id": signed_in.account_info.id, "username": signed_in.account_info.username}),
         )
         .await;
-    Ok(ApiResponse::ok(tr("Login successful"), signed_in))
+    Ok(with_cookie(
+        ApiResponse::ok(tr("Login successful"), signed_in),
+        cookie,
+    ))
 }
 
 #[derive(Serialize)]
@@ -222,7 +244,7 @@ async fn logout(
     State(state): State<AppState>,
     Lang(lang): Lang,
     headers: HeaderMap,
-) -> Result<ApiResponse<()>, ApiError> {
+) -> Result<impl axum::response::IntoResponse, ApiError> {
     let invalid = || {
         ApiError::Rejected(
             state
@@ -243,9 +265,9 @@ async fn logout(
             .await
             .map_err(redis_down)?;
     }
-    Ok(ApiResponse::ok(
-        state.i18n.tr(&lang, "Logout successful", &[]),
-        (),
+    Ok((
+        [(axum::http::header::SET_COOKIE, crate::rspamd::clearing())],
+        ApiResponse::ok(state.i18n.tr(&lang, "Logout successful", &[]), ()),
     ))
 }
 
@@ -258,8 +280,9 @@ struct RefreshBody {
 async fn refresh(
     State(state): State<AppState>,
     Lang(lang): Lang,
+    conn: Option<Extension<ConnInfo>>,
     ApiBody(body): ApiBody<RefreshBody>,
-) -> Result<ApiResponse<TokenPair>, ApiError> {
+) -> Result<Response, ApiError> {
     let invalid = || {
         ApiError::Rejected(
             state
@@ -293,9 +316,14 @@ async fn refresh(
     let pair = state
         .jwt
         .issue_pair(account.account_id, &account.username, &roles, &sid);
-    Ok(ApiResponse::ok(
-        state.i18n.tr(&lang, "Token refreshed successfully", &[]),
-        pair,
+    let tls = conn.is_some_and(|c| c.0.tls);
+    let cookie = crate::rspamd::for_new_tokens(&state, account.account_id, &roles, &sid, tls);
+    Ok(with_cookie(
+        ApiResponse::ok(
+            state.i18n.tr(&lang, "Token refreshed successfully", &[]),
+            pair,
+        ),
+        cookie,
     ))
 }
 
@@ -394,7 +422,7 @@ async fn aapanel_sso(
     if account.status != 1 {
         return Err(reject("account is disabled"));
     }
-    let signed_in = sign_in(&state, account).await?;
+    let (signed_in, rspamd_cookie) = sign_in(&state, account, conn.tls).await?;
     audit
         .record(
             LogType::Login,
@@ -404,15 +432,17 @@ async fn aapanel_sso(
             ),
         )
         .await;
-    let mut response = ApiResponse::ok(
-        state.i18n.tr(&lang, "aaPanel SSO successful", &[]),
-        signed_in,
-    )
-    .into_response();
+    let mut response = with_cookie(
+        ApiResponse::ok(
+            state.i18n.tr(&lang, "aaPanel SSO successful", &[]),
+            signed_in,
+        ),
+        rspamd_cookie,
+    );
     if let Some(cookie) = crate::edge::entrance_set_cookie(&state, conn.tls)
         && let Ok(value) = cookie.parse()
     {
-        response.headers_mut().insert(SET_COOKIE, value);
+        response.headers_mut().append(SET_COOKIE, value);
     }
     Ok(response)
 }

@@ -11,10 +11,9 @@
 //! relay); the connection checks run (Go's read a table that no longer
 //! exists, so every relay stayed "unknown" while the list said "Connected").
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use ferropost_domain::relay::{self as rules, Login, Relay};
 use ferropost_store::relay::{self as store, RelayRow};
 use futures_util::StreamExt;
@@ -22,6 +21,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::postfix::{conf, create_if_missing, edit_main_cf_at, write_if_changed};
 use crate::state::AppState;
 
 /// Job name shared with Go's `timers.OwnedByRust`.
@@ -79,35 +79,6 @@ fn as_relay(row: &RelayRow) -> Relay {
 }
 
 // ---- files ---------------------------------------------------------------------
-
-/// Writes `content` when it differs. `main.cf` and `master.cf` are mounted
-/// into the Postfix container as single files, so they are rewritten in
-/// place (a rename would leave Postfix on the old file); the others are
-/// replaced atomically.
-fn write_if_changed(path: &Path, content: &str, mode: Option<u32>) -> Result<bool> {
-    if std::fs::read_to_string(path).is_ok_and(|current| current == content) {
-        return Ok(false);
-    }
-    match mode {
-        Some(mode) => crate::fsio::write_atomic(path, content.as_bytes(), mode),
-        None => std::fs::write(path, content),
-    }
-    .with_context(|| format!("write {}", path.display()))?;
-    Ok(true)
-}
-
-fn create_if_missing(path: &Path, content: &str, mode: u32) -> Result<bool> {
-    if path.exists() {
-        return Ok(false);
-    }
-    crate::fsio::write_atomic(path, content.as_bytes(), mode)
-        .with_context(|| format!("create {}", path.display()))?;
-    Ok(true)
-}
-
-fn conf(state: &AppState, name: &str) -> PathBuf {
-    state.config.postfix_conf_dir.join(name)
-}
 
 /// Writes the relay settings to Postfix and rspamd and reloads what
 /// changed (Go's `SyncRelayConfigsToPostfix`).
@@ -200,9 +171,9 @@ pub async fn sync(state: &AppState) -> Result<()> {
             }
             Err(_) => tracing::warn!(path = %master.display(), "master.cf missing; relay transports not written"),
         }
-        let main = conf(state, "main.cf");
-        let current = std::fs::read_to_string(&main).unwrap_or_default();
-        changed |= write_if_changed(&main, &rules::apply_main(&current, enabled), None)?;
+        changed |= edit_main_cf_at(&conf(state, "main.cf"), |current| {
+            rules::apply_main(current, enabled)
+        })?;
 
         // Postfix needs the compiled maps too.
         for map in ["sasl_passwd", "sasl_passwd_primary", "sender_relay_maps_primary"] {
@@ -271,7 +242,10 @@ pub async fn sync_dkim_signing(state: &AppState) -> Result<bool> {
     let mut wanted = domains.clone();
     wanted.sort();
     let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current.starts_with("sign_headers") && rules::dkim_signed_domains(&current) == wanted {
+    if current.starts_with("sign_headers")
+        && current.contains("\nuse_esld = false;")
+        && rules::dkim_signed_domains(&current) == wanted
+    {
         return Ok(false);
     }
     let content = rules::dkim_signing_conf(&domains);
@@ -293,8 +267,8 @@ async fn first_sync(state: &AppState) -> Result<()> {
         .join("data/SMTP_relay_sync_config_mark2.pl");
     if !marker.exists() {
         let main = conf(state, "main.cf");
-        if let Ok(current) = std::fs::read_to_string(&main) {
-            write_if_changed(&main, &rules::migrate_main(&current), None)?;
+        if main.exists() {
+            edit_main_cf_at(&main, rules::migrate_main)?;
         }
     }
     sync(state).await?;
@@ -459,19 +433,4 @@ pub fn spawn(state: &AppState, mut shutdown: watch::Receiver<bool>) -> Vec<JoinH
             }
         }),
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn writes_only_changes() {
-        let dir = tempfile::tempdir().expect("dir");
-        let path = dir.path().join("main.cf");
-        assert!(write_if_changed(&path, "a\n", None).expect("write"));
-        assert!(!write_if_changed(&path, "a\n", None).expect("same"));
-        assert!(write_if_changed(&path, "b\n", Some(0o600)).expect("change"));
-        assert!(!create_if_missing(&path, "c\n", 0o600).expect("exists"));
-    }
 }

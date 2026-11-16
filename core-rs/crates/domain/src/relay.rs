@@ -457,8 +457,10 @@ pub fn valid_login(user: &str, password: &str) -> bool {
         && password.len() <= 255
 }
 
-/// rspamd's `local.d/dkim_signing.conf` for the domains it signs (Go's
-/// `RepairDKIMSigningConfig`).
+/// rspamd's `local.d/dkim_signing.conf` for the domains it signs, as Go
+/// leaves it (`RepairDKIMSigningConfig`, then `FixRspamdDKIMSigningConfig`
+/// adding `use_esld = false`: without it rspamd looks a subdomain's key up
+/// under its parent domain, so a hosted subdomain would go unsigned).
 pub fn dkim_signing_conf(domains: &[String]) -> String {
     let blocks: String = domains
         .iter()
@@ -485,6 +487,8 @@ pub fn dkim_signing_conf(domains: &[String]) -> String {
         .collect();
     format!(
         r#"sign_headers = "from:sender:reply-to:subject:date:message-id:to:cc:mime-version:content-type:content-transfer-encoding:content-language:resent-to:resent-cc:resent-from:resent-sender:resent-message-id:in-reply-to:references:list-id:list-help:list-owner:list-unsubscribe:list-subscribe:list-post:list-unsubscribe-post:disposition-notification-to:disposition-notification-options:original-recipient:openpgp:autocrypt";
+
+use_esld = false;
 
 domain {{
 #BT_DOMAIN_DKIM_BEGIN
@@ -657,6 +661,7 @@ mod tests {
         assert!(conf.contains("#a.com_DKIM_BEGIN\na.com {"));
         assert!(conf.contains("path: \"/var/lib/rspamd/dkim/a.com/short.private\";"));
         assert!(conf.ends_with("#BT_DOMAIN_DKIM_END\n}"));
+        assert!(conf.contains("\";\n\nuse_esld = false;\n\ndomain {\n"));
         let both = dkim_signing_conf(&["b.com".to_owned(), "a.com".to_owned()]);
         assert_eq!(dkim_signed_domains(&both), ["a.com", "b.com"]);
     }

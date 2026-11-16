@@ -11,9 +11,13 @@ mod docker_api;
 mod email_template;
 mod files;
 mod languages;
+mod mail_bcc;
+mod mail_forward;
+mod mail_services;
 mod mailboxes;
 mod operation_log;
 mod overview;
+mod postfix_queue;
 mod relay;
 mod send_api;
 mod settings;
@@ -51,6 +55,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(send_api::routes())
         .merge(settings::routes())
         .merge(relay::routes())
+        .merge(mail_services::routes())
+        .merge(mail_bcc::routes())
+        .merge(mail_forward::routes())
+        .merge(postfix_queue::routes())
         .merge(docker_api::routes())
         .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it
@@ -77,6 +85,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(subscription_form::routes())
         .merge(languages::public_routes())
         .merge(sign_in::public_routes())
+        // Authenticated by its own cookie (an iframe sends no token).
+        .merge(crate::rspamd::routes())
         // Authenticated by the API key instead of a login.
         .merge(send_api::public_routes());
 

@@ -10,6 +10,7 @@ pub mod campaigns;
 pub mod contacts;
 pub mod domains;
 pub mod groups;
+pub mod mail_services;
 pub mod mailboxes;
 pub mod maillog;
 pub mod options;

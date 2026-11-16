@@ -52,6 +52,9 @@ pub struct Config {
     /// Container restarted when rspamd's DKIM signing changes (`none`
     /// disables).
     pub rspamd_container: String,
+    /// rspamd's controller, which serves its web interface
+    /// (`FERROPOST_RSPAMD_URL`).
+    pub rspamd_url: String,
     /// Time zone of dashboard charts (`TZ`, as docker-compose sets it).
     pub timezone: String,
     /// Container whose `postqueue` reports the deferred queue; `none`
@@ -202,6 +205,14 @@ impl Config {
             rspamd_data_dir: root.join("../rspamd-data"),
             rspamd_container: var("FERROPOST_RSPAMD_CONTAINER")
                 .unwrap_or_else(|| "rspamd-billionmail".to_owned()),
+            rspamd_url: var("FERROPOST_RSPAMD_URL").unwrap_or_else(|| {
+                if in_container {
+                    "http://rspamd:11334"
+                } else {
+                    "http://127.0.0.1:21334"
+                }
+                .to_owned()
+            }),
             timezone: var("TZ").unwrap_or_else(|| "UTC".to_owned()),
             postfix_container: var("FERROPOST_POSTFIX_CONTAINER")
                 .unwrap_or_else(|| "postfix-billionmail".to_owned()),

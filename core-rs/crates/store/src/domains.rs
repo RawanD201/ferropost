@@ -29,3 +29,22 @@ pub async fn mail_hostname(pg: &PgPool, name: &str) -> Result<Option<String>> {
             .await?;
     Ok(exists.then_some(fallback))
 }
+
+/// Whether `domain` is one of the server's domains.
+pub async fn exists(pg: &PgPool, domain: &str) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM domain WHERE lower(domain) = lower($1))")
+            .bind(domain)
+            .fetch_one(pg)
+            .await?,
+    )
+}
+
+/// The oldest active domain.
+pub async fn first_active(pg: &PgPool) -> Result<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT domain FROM domain WHERE active = 1 ORDER BY create_time, domain LIMIT 1",
+    )
+    .fetch_optional(pg)
+    .await?)
+}

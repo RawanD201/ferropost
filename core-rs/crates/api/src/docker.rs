@@ -64,6 +64,17 @@ pub async fn exec_ok(container: &str, cmd: &[&str]) -> Result<String> {
     Ok(stdout)
 }
 
+/// Standard output, standard error and exit code of `cmd`, for callers
+/// that read a failure themselves. `none` succeeds with no output.
+pub async fn exec_status(container: &str, cmd: &[&str]) -> Result<(String, String, Option<i64>)> {
+    if container == "none" {
+        return Ok((String::new(), String::new(), Some(0)));
+    }
+    tokio::time::timeout(TIMEOUT, run_full(container, cmd))
+        .await
+        .with_context(|| format!("{} in {container} timed out", cmd.join(" ")))?
+}
+
 /// Standard output, standard error and exit code of `cmd`.
 async fn run_full(container: &str, cmd: &[&str]) -> Result<(String, String, Option<i64>)> {
     use bollard::container::LogOutput;

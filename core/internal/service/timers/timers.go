@@ -96,7 +96,9 @@ func Start(ctx context.Context) (err error) {
 
 	// Fix Postfix main configuration and Rspamd DKIM signing config
 	gtimer.AddOnce(5*time.Second, func() {
-		mail_service.FixPostfixMainConfig(ctx)
+		if !OwnedByRust("mail_services") {
+			mail_service.FixPostfixMainConfig(ctx)
+		}
 		mail_service.FixRspamdDKIMSigningConfig(ctx)
 		mail_service.FixDovecotSSLConfig(ctx)
 	})
