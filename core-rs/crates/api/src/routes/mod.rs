@@ -4,6 +4,7 @@
 //! the same paths and methods Go uses, and verify the JSON matches.
 
 mod abnormal_recipient;
+mod askai;
 mod blocklist;
 mod campaigns;
 mod contact_groups;
@@ -67,6 +68,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(multi_ip::routes())
         .merge(blocklist::routes())
         .merge(domains::routes())
+        .merge(askai::routes())
         .merge(docker_api::routes())
         .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it

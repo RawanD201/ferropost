@@ -85,7 +85,7 @@ pub struct RenderData {
     pub api: BTreeMap<String, serde_json::Value>,
 }
 
-/// Lead-signal phrases for `.Enrichment.*` (Go: `video_outreach.SignalCopy`).
+/// Lead-signal phrases for `.Enrichment.*` (Go: `batch_mail.SignalCopy`).
 const SIGNAL_COPY: &[(&str, &str)] = &[
     ("multiple_providers", "managing multiple locations"),
     ("running_ads", "investing in paid advertising"),

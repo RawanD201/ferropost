@@ -80,6 +80,7 @@ everything. supervisord sets it for both programs.
 | `/api/multi_ip_domain/apply`, `/api/multi_ip_domain/test` | Dedicated sending IPs: writes `docker-compose_addnetwork.yml` on the host and Postfix's transports (undone on failure), and checks a domain's address and SPF records for its IP. |
 | `/api/domains/*` (all 8 routes) | Sending domains: create, update, brand flag, delete, list, all, refresh DNS records, default domain. A new domain gets Go's five system mailboxes, its DKIM keys and its mail host certificate, as before. |
 | `/api/domain_blocklist/check`, `/api/domain_blocklist/logs` | Checks a mail host on 139 DNS blocklists in the background and serves the check's log. |
+| `/api/askai/supplier/*` (all 15 routes) | AI providers and their models, in Go's files under `conf/supplier/` (built-in providers copied from the templates). |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -436,6 +437,13 @@ These are security fixes that keep the frontend working unchanged:
   dedicated IP's transport is really deleted (Go looked for `domain`, but
   `bm.sh` stores `@domain`), and applying with none left removes the old
   transports from `master.cf`.
+- **AI providers:** provider names are checked before they become folder
+  names (Go's `../..` reached any folder, and removing a provider deleted
+  it); the files holding API keys are owner-only (Go: 0777) and keys are
+  masked in every answer, the mask sent back keeping the stored key.
+  Removing a model reports success (Go answered "Model not found" when it
+  worked); edits made while a provider is off no longer save all its
+  models as off; adding a model to an unknown provider fails.
 - **Video outreach is gone** (`/api/video_outreach/*`, `/landing/video`
   and its job, in Go and in the console). It needed ffmpeg, Node
   Playwright and Anthropic, Cartesia, SyncLabs and Cloudflare R2 keys that

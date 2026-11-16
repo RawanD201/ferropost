@@ -3,6 +3,7 @@
 //! Nothing in this crate performs IO, so every rule here is unit-testable
 //! without a database, network or filesystem.
 
+pub mod askai;
 pub mod audit;
 pub mod blocklist;
 pub mod campaigns;

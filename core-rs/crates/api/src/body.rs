@@ -44,3 +44,22 @@ impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for ApiBody<T> {
             .map_err(|e| ApiError::Validation(format!("Invalid request body: {e}")))
     }
 }
+
+/// The query string of a `GET`, else the body: for routes Go served on
+/// both methods.
+pub struct Input<T>(pub T);
+
+impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for Input<T> {
+    type Rejection = ApiError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, ApiError> {
+        if req.method() == axum::http::Method::GET || req.method() == axum::http::Method::HEAD {
+            let axum::extract::Query(value) = axum::extract::Query::<T>::try_from_uri(req.uri())
+                .map_err(|e| ApiError::Validation(e.body_text()))?;
+            return Ok(Self(value));
+        }
+        ApiBody::<T>::from_request(req, state)
+            .await
+            .map(|ApiBody(value)| Self(value))
+    }
+}

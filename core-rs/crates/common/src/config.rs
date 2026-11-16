@@ -45,6 +45,9 @@ pub struct Config {
     /// Postfix configuration shared with its container
     /// (`<root>/../conf/postfix`: `main.cf`, `master.cf`, `conf/`, `sql/`).
     pub postfix_conf_dir: PathBuf,
+    /// The shared `conf/` directory (AskAI's providers, projects and chats
+    /// live under it, as with Go).
+    pub conf_dir: PathBuf,
     /// rspamd's `local.d` (`<root>/../conf/rspamd/local.d`).
     pub rspamd_local_d: PathBuf,
     /// rspamd's data, DKIM keys included (`<root>/../rspamd-data`).
@@ -204,6 +207,9 @@ impl Config {
                 .unwrap_or_else(|| root.join("../logs/postfix/mail.log")),
             postfix_main_cf: root.join("../conf/postfix/main.cf"),
             postfix_conf_dir: root.join("../conf/postfix"),
+            conf_dir: var("FERROPOST_CONF_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("../conf")),
             rspamd_local_d: root.join("../conf/rspamd/local.d"),
             rspamd_data_dir: root.join("../rspamd-data"),
             rspamd_container: var("FERROPOST_RSPAMD_CONTAINER")

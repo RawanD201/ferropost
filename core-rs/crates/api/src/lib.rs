@@ -9,6 +9,7 @@
 pub mod access_log;
 pub mod acme;
 pub mod api_mail;
+pub mod askai;
 pub mod audit;
 pub mod auth;
 pub mod base_url;
