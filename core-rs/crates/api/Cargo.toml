@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
+pwhash.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 bollard.workspace = true
@@ -41,11 +43,9 @@ zip.workspace = true
 
 [dev-dependencies]
 ferropost-jobs.workspace = true
-base64.workspace = true
 fred.workspace = true
 mail-parser = "1"
 md-5.workspace = true
-pwhash.workspace = true
 sqlx.workspace = true
 tempfile = "3"
 tracing-subscriber.workspace = true

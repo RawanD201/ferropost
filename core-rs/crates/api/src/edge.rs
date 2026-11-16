@@ -312,6 +312,22 @@ fn entrance_valid(value: &str, key: &[u8; 32], safe_path: &str, now: i64) -> boo
             .is_ok()
 }
 
+/// `Set-Cookie` that passes the safe entrance, when one is configured (for
+/// sign-ins that skip it, like aaPanel SSO; Go set its session flag).
+pub(crate) fn entrance_set_cookie(state: &AppState, tls: bool) -> Option<String> {
+    let safe_path = state
+        .config
+        .env
+        .get("SafePath")
+        .map(|v| web::normalize_safe_path(&v).to_owned())
+        .filter(|v| !v.is_empty())?;
+    let value = entrance_cookie_value(&state.entrance_key, &safe_path, now() + ENTRANCE_TTL_SECS);
+    let secure = if tls { "; Secure" } else { "" };
+    Some(format!(
+        "{ENTRANCE_COOKIE}={value}; Path=/; Max-Age={ENTRANCE_TTL_SECS}; HttpOnly; SameSite=Lax{secure}"
+    ))
+}
+
 fn enter(key: &[u8; 32], safe_path: &str, tls: bool, base: &str) -> Response {
     let value = entrance_cookie_value(key, safe_path, now() + ENTRANCE_TTL_SECS);
     let secure = if tls { "; Secure" } else { "" };

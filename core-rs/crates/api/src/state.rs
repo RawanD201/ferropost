@@ -39,7 +39,8 @@ pub struct Inner {
 /// change made through the Go admin UI takes to apply here.
 pub struct Caches {
     /// Role names per account (Go cached these for 20 seconds as well).
-    pub roles: Cache<i64, Arc<[String]>>,
+    /// `None` for disabled or deleted accounts.
+    pub roles: Cache<i64, Option<Arc<[String]>>>,
     pub permissions: Cache<(i64, RouteInfo), bool>,
     pub whitelist: Cache<(), Arc<Vec<IpNet>>>,
     pub default_language: Cache<(), Option<String>>,

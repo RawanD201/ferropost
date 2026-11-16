@@ -56,6 +56,7 @@ everything. supervisord sets it for both programs.
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/api/batch_mail/task/*` (12 routes), `/api/batch_mail/tracking/*` (2) | Campaigns: create, update, delete, list, find, pause, resume, speed, test mail, send counts, stats, delivery logs. Need the `campaigns` job (above). |
+| `/api/login`, `/api/aapanel/sso`, `/api/logout`, `/api/refresh-token`, `/api/get_validate_code` | Signing in and out (Go's account, role and permission routes were never wired up). Tokens keep Go's format, plus a session ID so logout ends the whole session. |
 | `/api/abnormal_recipient/*` (all 8 routes) | Blocklist of failing addresses: list, add, delete, clear, the automatic-scan switch, and the background group scan (MX check) with its log. |
 | `/api/languages/get` (public), `/api/languages/set` | The console language. `set` needs a login (no permission, as in Go). |
 | `/subscription/form` (public page) | Hosted form to subscribe to the listed groups. |
@@ -168,6 +169,16 @@ These are security fixes that keep the frontend working unchanged:
   exempt. Go answered 404 to them whenever a SafePath was set.
 - **Tokens:** refresh tokens are no longer accepted as access tokens. If Redis
   is unreachable, the token-revocation check fails closed (Go skipped it).
+  Tokens of disabled or deleted accounts stop working within 20 seconds (Go
+  honoured them until expiry, and let disabled accounts sign in). Logout
+  ends the access and refresh token together, and a refresh token works
+  once (Go left both usable for seven days).
+- **Sign-in:** failed logins and captchas are counted in Redis per real
+  client IP (Go kept them in memory, keyed on an `X-Forwarded-For` anyone
+  could set, so the lock was easy to dodge); an unknown username takes as
+  long to reject as a wrong password; the captcha is an SVG with stroked,
+  individually transformed glyphs (Go: PNG) and each one works once; the
+  audit log no longer stores the issued tokens.
 - **Errors:** internal errors return a generic message and are logged. Go sent
   raw error text, including SQL errors, to the browser.
 - **Paging:** `page_size` is capped at 1000.
@@ -322,5 +333,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); domains/DNS/DKIM, ACME and multi-IP; relay; mail_services and the rspamd proxy; settings, files and the Docker API; accounts, roles and login; AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API; relay; mail_services and the rspamd proxy; domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

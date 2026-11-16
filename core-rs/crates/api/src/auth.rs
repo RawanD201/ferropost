@@ -9,8 +9,8 @@ use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::Response;
 use ferropost_domain::rbac::ADMIN_ROLE;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use serde::Deserialize;
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
 
 use crate::envelope::ApiError;
 use crate::state::AppState;
@@ -26,13 +26,62 @@ pub struct Claims {
     pub exp: Option<i64>,
     pub sub: Option<String>,
     pub jti: Option<String>,
+    /// Login session shared by an access and refresh token pair (Rust-issued
+    /// tokens only), so logout can end both.
+    #[serde(default)]
+    pub sid: Option<String>,
 }
 
 const ACCESS_SUBJECT: &str = "access_token";
 const API_SUBJECT: &str = "api_token";
+const REFRESH_SUBJECT: &str = "refresh_token";
+/// Go's `consts.DEFAULT_SERVER_NAME`.
+const ISSUER: &str = "billion-mail";
+/// Lifetimes Go used (`jwt.accessExpiry`, `jwt.refreshExpiry`).
+pub const ACCESS_TTL_SECS: i64 = 86_400;
+pub const REFRESH_TTL_SECS: i64 = 7 * 86_400;
+
+#[derive(Serialize)]
+struct Issued<'a> {
+    #[serde(rename = "accountId")]
+    account_id: i64,
+    username: &'a str,
+    roles: Option<&'a [String]>,
+    #[serde(rename = "apiToken")]
+    api_token: bool,
+    exp: i64,
+    iat: i64,
+    nbf: i64,
+    iss: &'static str,
+    sub: &'static str,
+    jti: String,
+    sid: &'a str,
+}
+
+/// A fresh access and refresh token.
+#[derive(Debug, Clone, Serialize)]
+pub struct TokenPair {
+    pub token: String,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: String,
+    pub ttl: i64,
+}
+
+fn random_hex(bytes: usize) -> String {
+    use rand::RngCore;
+    let mut buf = vec![0u8; bytes];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+    hex::encode(buf)
+}
+
+/// A new login session ID.
+pub fn new_session_id() -> String {
+    random_hex(16)
+}
 
 pub struct JwtVerifier {
     key: DecodingKey,
+    signing: EncodingKey,
     validation: Validation,
 }
 
@@ -46,6 +95,7 @@ impl JwtVerifier {
         validation.leeway = 0;
         Self {
             key: DecodingKey::from_secret(secret.as_bytes()),
+            signing: EncodingKey::from_secret(secret.as_bytes()),
             validation,
         }
     }
@@ -57,6 +107,47 @@ impl JwtVerifier {
             .ok()?
             .claims;
         matches!(claims.sub.as_deref(), Some(ACCESS_SUBJECT | API_SUBJECT)).then_some(claims)
+    }
+
+    /// A refresh token (never accepted by [`JwtVerifier::verify`]).
+    pub fn verify_refresh(&self, token: &str) -> Option<Claims> {
+        let claims = jsonwebtoken::decode::<Claims>(token, &self.key, &self.validation)
+            .ok()?
+            .claims;
+        (claims.sub.as_deref() == Some(REFRESH_SUBJECT) && claims.exp.is_some()).then_some(claims)
+    }
+
+    /// Issues an access and refresh token in Go's format, tied to `sid`.
+    pub fn issue_pair(
+        &self,
+        account_id: i64,
+        username: &str,
+        roles: &[String],
+        sid: &str,
+    ) -> TokenPair {
+        let now = chrono::Utc::now().timestamp();
+        let sign = |sub: &'static str, ttl: i64, roles: Option<&[String]>| {
+            let claims = Issued {
+                account_id,
+                username,
+                roles,
+                api_token: false,
+                exp: now + ttl,
+                iat: now,
+                nbf: now,
+                iss: ISSUER,
+                sub,
+                jti: random_hex(32),
+                sid,
+            };
+            jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &self.signing)
+                .unwrap_or_default()
+        };
+        TokenPair {
+            token: sign(ACCESS_SUBJECT, ACCESS_TTL_SECS, Some(roles)),
+            refresh_token: sign(REFRESH_SUBJECT, REFRESH_TTL_SECS, None),
+            ttl: ACCESS_TTL_SECS,
+        }
     }
 }
 
@@ -95,6 +186,25 @@ impl<S: Send + Sync> FromRequestParts<S> for CurrentUser {
     }
 }
 
+/// Whether the token or its login session was revoked.
+pub async fn revoked(state: &AppState, claims: &Claims) -> Result<bool, ApiError> {
+    let redis = &state.store.redis;
+    let unavailable = |e: anyhow::Error| ApiError::Unavailable(format!("redis: {e:#}"));
+    let jti = claims.jti.as_deref().unwrap_or_default();
+    if ferropost_store::tokens::is_revoked(redis, jti)
+        .await
+        .map_err(unavailable)?
+    {
+        return Ok(true);
+    }
+    match claims.sid.as_deref() {
+        Some(sid) => ferropost_store::tokens::session_revoked(redis, sid)
+            .await
+            .map_err(unavailable),
+        None => Ok(false),
+    }
+}
+
 /// Route layer for every authenticated API route.
 pub async fn require_auth(
     State(state): State<AppState>,
@@ -110,29 +220,29 @@ pub async fn require_auth(
 
     // Logout revokes a token by writing its ID to Redis. Go skipped the check
     // when Redis failed; here an unavailable Redis rejects the request.
-    if claims.exp.is_some() {
-        let jti = claims.jti.as_deref().unwrap_or_default();
-        let revoked = ferropost_store::tokens::is_revoked(&state.store.redis, jti)
-            .await
-            .map_err(|e| ApiError::Unavailable(format!("redis: {e:#}")))?;
-        if revoked {
-            return Err(ApiError::Unauthorized(String::new()));
-        }
+    if claims.exp.is_some() && revoked(&state, &claims).await? {
+        return Err(ApiError::Unauthorized(String::new()));
     }
 
+    // `None` for an account that is disabled or gone: Go kept honouring
+    // their tokens until they expired.
     let roles = state
         .caches
         .roles
         .try_get_with(claims.account_id, async {
-            ferropost_store::rbac::account_role_names(&state.store.pg, claims.account_id)
+            ferropost_store::rbac::account_access(&state.store.pg, claims.account_id)
                 .await
-                .map(Arc::<[String]>::from)
+                .map(|access| match access {
+                    Some((1, roles)) => Some(Arc::<[String]>::from(roles)),
+                    _ => None,
+                })
         })
         .await
         .map_err(|e| {
             tracing::error!(error = %format!("{e:#}"), "load account roles");
             ApiError::Unauthorized("failed to get account roles".to_owned())
-        })?;
+        })?
+        .ok_or_else(|| ApiError::Unauthorized(String::new()))?;
 
     req.extensions_mut().insert(CurrentUser {
         account_id: claims.account_id,

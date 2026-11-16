@@ -13,6 +13,7 @@ mod mailboxes;
 mod operation_log;
 mod overview;
 mod send_api;
+mod sign_in;
 mod subscription_form;
 pub(crate) mod subscriptions;
 mod tags;
@@ -58,6 +59,7 @@ pub fn router(state: AppState) -> Router<AppState> {
     // A login without a permission check (Go exempted these from RBAC).
     let signed_in = Router::new()
         .merge(languages::signed_in_routes())
+        .merge(sign_in::signed_in_routes())
         .route_layer(from_fn_with_state(state, auth::require_auth));
 
     // Public routes: reached by recipients and other servers, not the console.
@@ -66,6 +68,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(subscriptions::routes())
         .merge(subscription_form::routes())
         .merge(languages::public_routes())
+        .merge(sign_in::public_routes())
         // Authenticated by the API key instead of a login.
         .merge(send_api::public_routes());
 
