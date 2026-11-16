@@ -15,6 +15,7 @@ pub mod body;
 pub mod campaigns;
 pub mod conn;
 pub mod de;
+pub mod dns;
 pub mod docker;
 pub mod edge;
 pub mod envelope;

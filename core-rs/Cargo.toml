@@ -37,6 +37,7 @@ fred = { version = "10", default-features = false, features = ["i-keys", "i-scri
 moka = { version = "0.12", features = ["future"] }
 
 jsonwebtoken = "9"
+hickory-resolver = "0.24"
 hmac = "0.12"
 sha2 = "0.10"
 md-5 = "0.10"

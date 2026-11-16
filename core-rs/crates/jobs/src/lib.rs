@@ -3,6 +3,7 @@
 //! A job runs only when listed in `FERROPOST_RUST_JOBS`; Go reads the same
 //! variable and skips it, so each job has exactly one owner.
 
+pub mod abnormal;
 pub mod maillog;
 pub mod warmup;
 
@@ -16,6 +17,7 @@ use tokio::task::JoinHandle;
 /// Job names shared with Go's `timers.OwnedByRust`.
 pub const MAILLOG: &str = "maillog";
 pub const WARMUP: &str = "warmup";
+pub const ABNORMAL_RECIPIENT: &str = "abnormal_recipient";
 
 const AGGREGATE_EVERY: Duration = Duration::from_secs(60);
 
@@ -35,6 +37,13 @@ pub fn spawn(
         tasks.push(tokio::spawn(tailer.run(shutdown.clone())));
         tasks.push(tokio::spawn(aggregate(store.pg.clone(), shutdown.clone())));
         tracing::info!(path = %config.maillog_path.display(), "maillog jobs started");
+    }
+    if config.runs_job(ABNORMAL_RECIPIENT) {
+        tasks.push(tokio::spawn(abnormal::run(
+            store.pg.clone(),
+            shutdown.clone(),
+        )));
+        tracing::info!("bounce statistics job started");
     }
     if config.runs_job(WARMUP) {
         tasks.push(tokio::spawn(warmup::run(store.pg.clone(), shutdown)));

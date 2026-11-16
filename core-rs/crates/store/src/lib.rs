@@ -4,6 +4,7 @@
 //! Queries here target that schema unchanged so both servers can share one
 //! database during the migration.
 
+pub mod abnormal;
 pub mod audit;
 pub mod campaigns;
 pub mod contacts;

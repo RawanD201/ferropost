@@ -152,9 +152,11 @@ func Start(ctx context.Context) (err error) {
 	// askai timers
 	gtimer.Add(5*time.Second, askai.AutoGetProjectInfo)
 
-	gtimer.Add(30*time.Minute, func() {
-		abnormal_recipient.AbnormalRecipientAutoStat(context.Background())
-	})
+	if !OwnedByRust("abnormal_recipient") {
+		gtimer.Add(30*time.Minute, func() {
+			abnormal_recipient.AbnormalRecipientAutoStat(context.Background())
+		})
+	}
 
 	// Regularly update the success and failure data of marketing tasks
 	if !OwnedByRust("campaigns") {

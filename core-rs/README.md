@@ -46,6 +46,7 @@ everything. supervisord sets it for both programs.
 | `campaigns` | `ProcessEmailTasks`, `CleanupIdleExecutors`, `UpdateTaskJoinMailstat` | Sends campaigns from the `recipient_info` queue (claims with `SKIP LOCKED`, each submission recorded as it finishes, claims released after a restart), one worker per due campaign, one sender process at a time. Refreshes each campaign's delivery counts every minute. The `/api/batch_mail/task/*` and `/tracking/*` routes are native only while this job runs in Rust, since pausing and the speed act on the sender. |
 | `api_mail` | `ProcessApiMailQueueWithLock` | Sends mail queued through the send API (`api_mail_logs`) continuously, woken as soon as the API queues mail (Go polled once a minute), with the same claim-and-settle queue as campaigns. |
 | `mailboxes` | `NormalizeMailboxes`, `InitQuotaPluginAndUpdateUsedSpace`, `UpdateMailboxesUsedSpace`, `CheckMailboxesQuotaAlerts` | At start-up lower-cases addresses and, once per install, enables Dovecot's maildir quota. Hourly: reads every `maildirsize` into `used_quota` and the domain totals, and mails 90%/95% quota alerts (once a day per level, across restarts). |
+| `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
 
@@ -55,6 +56,9 @@ everything. supervisord sets it for both programs.
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/api/batch_mail/task/*` (12 routes), `/api/batch_mail/tracking/*` (2) | Campaigns: create, update, delete, list, find, pause, resume, speed, test mail, send counts, stats, delivery logs. Need the `campaigns` job (above). |
+| `/api/abnormal_recipient/*` (all 8 routes) | Blocklist of failing addresses: list, add, delete, clear, the automatic-scan switch, and the background group scan (MX check) with its log. |
+| `/api/languages/get` (public), `/api/languages/set` | The console language. `set` needs a login (no permission, as in Go). |
+| `/subscription/form` (public page) | Hosted form to subscribe to the listed groups. |
 | `/api/mailbox/*` (all 9 routes) | Create, batch create, update, delete, list, all, export, import. Keeps the maildir and its quota file in step with the database and asks Dovecot to recount usage. |
 | `/api/batch_mail/api/*` (all 7 routes) | Send-API keys (list, create, update, delete, stats) and queueing mail with one (`send`, `batch_send`: public, `x-api-key` header, Go's error codes 1001–1005). |
 | `/api/unsubscribe/one_click` (public, new) | RFC 8058 target of the `List-Unsubscribe` header campaign mail now carries: a POST unsubscribes from the campaign's group, a GET shows the usual page. |
@@ -293,6 +297,21 @@ These are security fixes that keep the frontend working unchanged:
   secure generator (Go seeded `math/rand` with the time) and only mailboxes
   actually created are reported. Quota alerts for a domain go to its
   administrator mailboxes (Go mailed `noreply@` from itself).
+- **Abnormal recipients:** a manual block always blocks (Go left an address
+  already seen once below the blocking count). The group scan accepts
+  domains with only an address record (RFC 5321 implicit MX), treats a null
+  MX as unreachable, and never acts on a domain whose lookup failed: Go
+  treated a DNS timeout as "no MX", so a hiccup could block or delete a
+  whole domain's contacts. Bounce reasons longer than the column no longer
+  fail the whole batch.
+- **Language:** changing the console language needs a login; Go let anyone
+  change it for everybody.
+- **`/subscription/form`:** subscribing follows each group's rules (double
+  opt-in, confirmation and welcome mails, the rate limit) where Go made the
+  address active everywhere and mailed "subscription confirmed" with the
+  visitor's name pasted into the HTML. Group names and the address are
+  escaped on the pages, and the form token is signed with an expiry instead
+  of a server session. The page still lists every group, as in Go.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -303,5 +322,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages; domains/DNS/DKIM, ACME and multi-IP; relay; mail_services and the rspamd proxy; settings, files and the Docker API; accounts, roles and login; AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); domains/DNS/DKIM, ACME and multi-IP; relay; mail_services and the rspamd proxy; settings, files and the Docker API; accounts, roles and login; AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

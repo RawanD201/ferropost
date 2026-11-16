@@ -377,11 +377,44 @@ async fn subscribe(
         return Ok(invalid_page());
     }
     let host = base_url::global(&state).await;
-    let membership = ferropost_store::subscriptions::membership(pg, &email, group.id).await?;
-    let attribs = serde_json::Value::Object(attribs);
+    let joined = join_group(
+        &state,
+        &group,
+        &email,
+        serde_json::Value::Object(attribs),
+        &host,
+    )
+    .await?;
+    Ok(match joined {
+        Joined::Already => page(&group.already_url, &host, "already_subscribed.html"),
+        Joined::Pending => page(&group.confirm_url, &host, "subscribe_confirm.html"),
+        Joined::Subscribed => page(&group.success_url, &host, "subscribe_success.html"),
+    })
+}
 
+/// What subscribing did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Joined {
+    Already,
+    /// Waiting for the double opt-in confirmation.
+    Pending,
+    Subscribed,
+}
+
+/// Subscribes a (validated) address to a group, honouring double opt-in
+/// and sending the group's mails. Shared by the subscribe form endpoint and
+/// the legacy `/subscription/form` page.
+pub(crate) async fn join_group(
+    state: &AppState,
+    group: &ContactGroup,
+    email: &str,
+    attribs: serde_json::Value,
+    host: &str,
+) -> Result<Joined, ApiError> {
+    let pg = &state.store.pg;
+    let membership = ferropost_store::subscriptions::membership(pg, email, group.id).await?;
     match membership {
-        Some((1, 1)) => return Ok(page(&group.already_url, &host, "already_subscribed.html")),
+        Some((1, 1)) => return Ok(Joined::Already),
         // Go re-subscribed people who had left, without confirmation, even
         // on double opt-in lists: anyone could put an address back on a
         // list. Now it takes the same path as a new subscription.
@@ -390,26 +423,25 @@ async fn subscribe(
             // subscription state until they confirm.
             ferropost_store::subscriptions::upsert_subscriber(
                 pg,
-                &email,
+                email,
                 group.id,
                 &attribs,
                 0,
                 now(),
             )
             .await?;
-            send_confirmation(&state, &group, &email, &host).await?;
-            return Ok(page(&group.confirm_url, &host, "subscribe_confirm.html"));
+            send_confirmation(state, group, email, host).await?;
+            return Ok(Joined::Pending);
         }
         _ => {}
     }
-
-    ferropost_store::subscriptions::upsert_subscriber(pg, &email, group.id, &attribs, 1, now())
+    ferropost_store::subscriptions::upsert_subscriber(pg, email, group.id, &attribs, 1, now())
         .await?;
-    ferropost_store::subscriptions::confirm(pg, &email, group.id, now()).await?;
+    ferropost_store::subscriptions::confirm(pg, email, group.id, now()).await?;
     if membership.is_none() && group.send_welcome_email == 1 {
-        send_welcome(&state, &group, &email);
+        send_welcome(state, group, email);
     }
-    Ok(page(&group.success_url, &host, "subscribe_success.html"))
+    Ok(Joined::Subscribed)
 }
 
 async fn send_confirmation(
