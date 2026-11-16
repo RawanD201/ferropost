@@ -303,7 +303,7 @@ pub async fn reset_schema(store: &Store) {
              mailstat_message_ids, mailstat_opened, mailstat_clicked, mailstat_send_mails,
              mailstat_senders, mailstat_deferred_mails, recipient_info, unsubscribe_records,
              domain, mailbox, abnormal_recipient, bm_campaign_warmup, bm_sender_ip_warmup,
-             bm_sender_ip_mail_provider CASCADE",
+             bm_sender_ip_mail_provider, api_ip_whitelist, api_mail_logs, api_templates CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -389,6 +389,26 @@ pub async fn reset_schema(store: &Store) {
             bounced_count INTEGER NOT NULL DEFAULT 0, deferred_count INTEGER NOT NULL DEFAULT 0,
             group_id INTEGER NOT NULL DEFAULT 0, stats_update_time INTEGER NOT NULL DEFAULT 0,
             tag_ids TEXT DEFAULT '', tag_logic VARCHAR(10) DEFAULT 'AND')",
+        "CREATE TABLE api_templates (
+            id SERIAL PRIMARY KEY, api_key VARCHAR(64) NOT NULL, api_name VARCHAR(255) NOT NULL,
+            template_id INTEGER NOT NULL, subject TEXT NOT NULL, addresser VARCHAR(320) NOT NULL,
+            full_name VARCHAR(255), unsubscribe SMALLINT NOT NULL DEFAULT 0,
+            track_open SMALLINT NOT NULL DEFAULT 1, track_click SMALLINT NOT NULL DEFAULT 1,
+            active SMALLINT NOT NULL DEFAULT 1,
+            create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            update_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            expire_time INTEGER DEFAULT 0, last_key_update_time INTEGER DEFAULT 0,
+            group_id INTEGER NOT NULL DEFAULT 0, UNIQUE(api_key))",
+        "CREATE TABLE api_mail_logs (
+            id SERIAL PRIMARY KEY, api_id INTEGER NOT NULL, recipient VARCHAR(320) NOT NULL,
+            message_id TEXT NOT NULL, addresser VARCHAR(320) NOT NULL,
+            status SMALLINT NOT NULL DEFAULT 0, error_message TEXT, attribs JSONB DEFAULT '{}'::jsonb,
+            send_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()))",
+        "CREATE TABLE api_ip_whitelist (
+            id SERIAL PRIMARY KEY, api_id INTEGER NOT NULL, ip VARCHAR(45) NOT NULL,
+            create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            FOREIGN KEY (api_id) REFERENCES api_templates(id) ON DELETE CASCADE)",
         "CREATE TABLE abnormal_recipient (
             id SERIAL PRIMARY KEY, create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
             recipient VARCHAR(320) NOT NULL, count INTEGER NOT NULL,

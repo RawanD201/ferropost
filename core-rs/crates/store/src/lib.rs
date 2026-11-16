@@ -15,6 +15,7 @@ pub mod options;
 pub mod overview;
 pub mod ratelimit;
 pub mod rbac;
+pub mod send_api;
 pub mod subscriptions;
 pub mod tags;
 pub mod templates;

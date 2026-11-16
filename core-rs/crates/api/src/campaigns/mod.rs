@@ -65,7 +65,7 @@ async fn supervise(state: AppState, mut shutdown: watch::Receiver<bool>) {
     let pg = state.store.pg.clone();
     // A single sender across processes; the lock lives with the connection.
     let lock = loop {
-        match store::SenderLock::try_take(&pg).await {
+        match store::SenderLock::try_take(&pg, "ferropost:campaigns").await {
             Ok(Some(lock)) => break lock,
             Ok(None) => tracing::info!("another process is sending campaigns; waiting"),
             Err(err) => tracing::warn!(error = %format!("{err:#}"), "campaign sender lock failed"),

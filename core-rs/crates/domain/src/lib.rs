@@ -12,6 +12,7 @@ pub mod maillog;
 pub mod overview;
 pub mod paging;
 pub mod rbac;
+pub mod send_api;
 pub mod tags;
 pub mod templates;
 pub mod tracking;

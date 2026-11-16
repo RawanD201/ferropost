@@ -118,8 +118,9 @@ pub async fn subscribed_groups(pg: &PgPool, email: &str) -> Result<Vec<(i32, Str
 }
 
 /// Extra evidence for a legacy (forgeable) unsubscribe token: the campaign
-/// it names was sent to this address, or, without a campaign, the address
-/// is in the group.
+/// it names was sent to this address (Go's send-API mail put the API's ID
+/// there, so a delivery through that API counts too), or, without a
+/// campaign, the address is in the group.
 pub async fn legacy_token_plausible(
     pg: &PgPool,
     email: &str,
@@ -127,7 +128,8 @@ pub async fn legacy_token_plausible(
     group_id: i64,
 ) -> Result<bool> {
     let sql = if task_id > 0 {
-        "SELECT EXISTS (SELECT 1 FROM recipient_info WHERE task_id = $2 AND recipient = $1)"
+        "SELECT EXISTS (SELECT 1 FROM recipient_info WHERE task_id = $2 AND recipient = $1)
+             OR EXISTS (SELECT 1 FROM api_mail_logs WHERE api_id = $2 AND recipient = $1)"
     } else {
         "SELECT EXISTS (SELECT 1 FROM bm_contacts WHERE email = $1 AND group_id = $3)"
     };

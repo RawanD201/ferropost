@@ -9,6 +9,7 @@ mod contacts;
 mod email_template;
 mod operation_log;
 mod overview;
+mod send_api;
 mod subscriptions;
 mod tags;
 mod tracking;
@@ -35,7 +36,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(email_template::routes())
         .merge(contact_groups::routes())
         .merge(contacts::routes())
-        .merge(overview::routes());
+        .merge(overview::routes())
+        .merge(send_api::routes());
     // Campaign routes act on the sender, so they are native only where it
     // runs; otherwise Go serves them next to its own sender.
     if state.config.runs_job(crate::campaigns::JOB) {
@@ -50,7 +52,9 @@ pub fn router(state: AppState) -> Router<AppState> {
     // Public routes: reached by recipients and other servers, not the console.
     let public = Router::new()
         .merge(tracking::routes())
-        .merge(subscriptions::routes());
+        .merge(subscriptions::routes())
+        // Authenticated by the API key instead of a login.
+        .merge(send_api::public_routes());
 
     Router::new().merge(authenticated).merge(public)
 }

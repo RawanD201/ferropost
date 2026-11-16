@@ -31,6 +31,8 @@ pub struct Inner {
     pub entrance_key: [u8; 32],
     /// Key for signing tracking links.
     pub tracking_key: [u8; 32],
+    /// Signalled when send-API mail is queued, so it goes out at once.
+    pub api_mail_queued: tokio::sync::Notify,
 }
 
 /// Short-lived caches in front of hot database lookups. TTLs bound how long a
@@ -96,6 +98,7 @@ impl AppState {
             caches: Caches::new(),
             entrance_key,
             tracking_key,
+            api_mail_queued: tokio::sync::Notify::new(),
             config,
             store,
         })))

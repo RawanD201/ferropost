@@ -69,6 +69,40 @@ pub fn personalise(content: &str, data: &RenderData, rng: &mut impl rand::Rng) -
     restore_unknown_tags(&out)
 }
 
+/// Click tracking (sparing the unsubscribe links) and the open pixel.
+pub fn apply_tracking(
+    tracker: &Tracker,
+    html: String,
+    base_url: &str,
+    click: bool,
+    open: bool,
+) -> String {
+    let html = if click {
+        let unsubscribe = [
+            format!("{base_url}/unsubscribe"),
+            format!("{base_url}/api/unsubscribe"),
+        ];
+        tracker.track_links_except(&html, &[&unsubscribe[0], &unsubscribe[1]])
+    } else {
+        html
+    };
+    if open { tracker.add_pixel(&html) } else { html }
+}
+
+/// The RFC 8058 headers for mail with an unsubscribe token for a group.
+pub fn list_unsubscribe(base_url: &str, jwt: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "List-Unsubscribe".to_owned(),
+            format!("<{}>", one_click_url(base_url, jwt)),
+        ),
+        (
+            "List-Unsubscribe-Post".to_owned(),
+            "List-Unsubscribe=One-Click".to_owned(),
+        ),
+    ]
+}
+
 impl Composer<'_> {
     pub fn compose(
         &self,
@@ -118,34 +152,18 @@ impl Composer<'_> {
             &id,
             self.tracking_key,
         );
-        let html = if t.track_click == 1 {
-            let unsubscribe = [
-                format!("{}/unsubscribe", self.base_url),
-                format!("{}/api/unsubscribe", self.base_url),
-            ];
-            tracker.track_links_except(&html, &[&unsubscribe[0], &unsubscribe[1]])
-        } else {
-            html
-        };
-        let html = if t.track_open == 1 {
-            tracker.add_pixel(&html)
-        } else {
-            html
-        };
+        let html = apply_tracking(
+            &tracker,
+            html,
+            self.base_url,
+            t.track_click == 1,
+            t.track_open == 1,
+        );
 
-        let mut headers = Vec::new();
-        if let Some(jwt) = &jwt
-            && t.group_id > 0
-        {
-            headers.push((
-                "List-Unsubscribe".to_owned(),
-                format!("<{}>", one_click_url(self.base_url, jwt)),
-            ));
-            headers.push((
-                "List-Unsubscribe-Post".to_owned(),
-                "List-Unsubscribe=One-Click".to_owned(),
-            ));
-        }
+        let headers = match &jwt {
+            Some(jwt) if t.group_id > 0 => list_unsubscribe(self.base_url, jwt),
+            _ => Vec::new(),
+        };
         Outgoing {
             from_email: t.addresser.clone(),
             from_name: Some(t.full_name.clone()),

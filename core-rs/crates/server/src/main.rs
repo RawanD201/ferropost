@@ -78,6 +78,7 @@ async fn run() -> Result<()> {
     let (stop_tx, stop_rx) = watch::channel(false);
     let mut jobs = ferropost_jobs::spawn(&config, &store, stop_rx.clone());
     jobs.extend(ferropost_api::campaigns::spawn(&state, stop_rx.clone()));
+    jobs.extend(ferropost_api::api_mail::spawn(&state, stop_rx.clone()));
     let watcher = {
         let graceful = graceful.clone();
         move || graceful.watcher()

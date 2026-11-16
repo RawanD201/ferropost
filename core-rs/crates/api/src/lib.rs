@@ -7,6 +7,7 @@
 //! the Go version simply stops receiving that traffic.
 
 pub mod access_log;
+pub mod api_mail;
 pub mod audit;
 pub mod auth;
 pub mod base_url;

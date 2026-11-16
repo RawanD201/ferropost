@@ -53,6 +53,10 @@ pub enum ApiError {
     /// Invalid input (Go answered validation failures with code 412).
     #[error("validation: {0}")]
     Validation(String),
+    /// A business error with a code API clients rely on (the send API's
+    /// 1001-1005).
+    #[error("rejected ({0}): {1}")]
+    Coded(i32, String),
     /// A dependency (database, Redis, Go core) is unreachable.
     #[error("unavailable: {0}")]
     Unavailable(String),
@@ -69,6 +73,7 @@ impl ApiError {
             Self::Conflict(_) => 409,
             Self::Rejected(_) => 400,
             Self::Validation(_) => 412,
+            Self::Coded(code, _) => *code,
             Self::Unavailable(_) => 503,
             Self::Internal(_) => 500,
         }
@@ -80,7 +85,8 @@ impl ApiError {
             | Self::NotFound(msg)
             | Self::Conflict(msg)
             | Self::Rejected(msg)
-            | Self::Validation(msg) => msg.clone(),
+            | Self::Validation(msg)
+            | Self::Coded(_, msg) => msg.clone(),
             Self::Forbidden => "Insufficient permissions".to_owned(),
             Self::Unavailable(_) => "Service temporarily unavailable".to_owned(),
             // Go returned raw error strings (SQL errors included). Details are

@@ -592,22 +592,24 @@ pub async fn sending_summary(
 
 // ---- The send queue -------------------------------------------------------
 
-/// The exclusive right to send campaigns, held while this value (and its
-/// connection) lives, so two processes never send the same queue.
-pub struct SenderLock(sqlx::pool::PoolConnection<Postgres>);
+/// The exclusive right to work a send queue, held while this value (and
+/// its connection) lives, so two processes never send the same mail.
+pub struct SenderLock(sqlx::pool::PoolConnection<Postgres>, &'static str);
 
 impl SenderLock {
-    pub async fn try_take(pg: &PgPool) -> Result<Option<Self>> {
+    /// `name` identifies the queue (`ferropost:campaigns`, ...).
+    pub async fn try_take(pg: &PgPool, name: &'static str) -> Result<Option<Self>> {
         let mut conn = pg.acquire().await?;
-        let locked: bool =
-            sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext('ferropost:campaigns'))")
-                .fetch_one(&mut *conn)
-                .await?;
-        Ok(locked.then_some(Self(conn)))
+        let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext($1))")
+            .bind(name)
+            .fetch_one(&mut *conn)
+            .await?;
+        Ok(locked.then_some(Self(conn, name)))
     }
 
     pub async fn release(mut self) -> Result<()> {
-        sqlx::query("SELECT pg_advisory_unlock(hashtext('ferropost:campaigns'))")
+        sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+            .bind(self.1)
             .execute(&mut *self.0)
             .await?;
         Ok(())

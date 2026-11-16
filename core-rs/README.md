@@ -44,6 +44,7 @@ everything. supervisord sets it for both programs.
 | `maillog` | `MallogEventHandler`, `AggregateMaillogsTask` | Follows `logs/postfix/mail.log` with a file cursor stored in the same transaction as the rows (exactly once; finishes `mail.log.1` after rotation; starts where Go's watermark stopped). Copies local deliveries every minute with a one-hour overlap. |
 | `warmup` | `SenderIpWarmup().PeriodicTask`, `SenderIpMailProvider().PeriodicTaskForProviders` | Hourly (and at start-up): re-scores each sending IP in warmup and each of its eight provider groups from delivery, bounce, open, click and complaint data, then moves the warmup period and progress along. One aggregate query per score instead of Go's ID lists; a lock keeps a pass from running twice. Go's campaign sender keeps reading the same tables until sending moves. |
 | `campaigns` | `ProcessEmailTasks`, `CleanupIdleExecutors`, `UpdateTaskJoinMailstat` | Sends campaigns from the `recipient_info` queue (claims with `SKIP LOCKED`, each submission recorded as it finishes, claims released after a restart), one worker per due campaign, one sender process at a time. Refreshes each campaign's delivery counts every minute. The `/api/batch_mail/task/*` and `/tracking/*` routes are native only while this job runs in Rust, since pausing and the speed act on the sender. |
+| `api_mail` | `ProcessApiMailQueueWithLock` | Sends mail queued through the send API (`api_mail_logs`) continuously, woken as soon as the API queues mail (Go polled once a minute), with the same claim-and-settle queue as campaigns. |
 
 ## Ported so far
 
@@ -53,6 +54,7 @@ everything. supervisord sets it for both programs.
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/api/batch_mail/task/*` (12 routes), `/api/batch_mail/tracking/*` (2) | Campaigns: create, update, delete, list, find, pause, resume, speed, test mail, send counts, stats, delivery logs. Need the `campaigns` job (above). |
+| `/api/batch_mail/api/*` (all 7 routes) | Send-API keys (list, create, update, delete, stats) and queueing mail with one (`send`, `batch_send`: public, `x-api-key` header, Go's error codes 1001–1005). |
 | `/api/unsubscribe/one_click` (public, new) | RFC 8058 target of the `List-Unsubscribe` header campaign mail now carries: a POST unsubscribes from the campaign's group, a GET shows the usual page. |
 | `/api/unsubscribe`, `/api/unsubscribe/user_group`, `/api/unsubscribe_new` (public) | Accept Go's links in people's inboxes, with extra checks. Listing an address's groups needs that address's unsubscribe link. The one-click route sends the group's "you're unsubscribed" mail with a resubscribe link. |
 | `/api/subscribe/submit`, `/api/subscribe/confirm` (public) | Forms post as before (form or JSON, values in the query or body). Addresses are validated, attributes are merged, double opt-in always goes through confirmation, and one confirmation mail per address and group goes out per 10 minutes. Mail is sent as `noreply@<default domain>`, creating that mailbox on first use as Go did. |
@@ -265,6 +267,16 @@ These are security fixes that keep the frontend working unchanged:
   for any campaign. Test mail renders the template for any address (Go sent
   raw tags to non-contacts). The list's keyword no longer bypasses the
   status filter, and the deferred count is real (Go always stored 0).
+- **Send API:** an API key may send only as mailboxes on its own domain
+  (Go let a key send as any mailbox on the server), expired keys are
+  refused and `reset_key` issues a new key (Go stored both settings and
+  ignored them), addresses are validated, and people who unsubscribed from
+  the API's group are not mailed. The queue cannot send twice: Go's lock
+  never excluded a second run and a 15-second deadline could stop a run
+  between sending and recording. Mail is rendered for every recipient (Go
+  sent the raw template to addresses that were not contacts) and carries
+  the one-click unsubscribe headers. The list's open and click rates are
+  real (Go filtered them by an empty window, so they were always 0).
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -274,6 +286,6 @@ These are security fixes that keep the frontend working unchanged:
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
-4. Sending: building blocks (done); subscribe/unsubscribe flows (done); IP warmup job (done); campaigns on a durable Postgres queue with their stats job and the warmup rate limiter (done); the send API
+4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations
