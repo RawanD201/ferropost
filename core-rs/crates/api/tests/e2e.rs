@@ -142,7 +142,7 @@ async fn end_to_end() {
     // --- proxy to Go ----------------------------------------------------
     let r = call(
         &app,
-        "/api/domains/list?page=1",
+        "/api/askai/project/list?page=1",
         &[
             ("authorization", &admin),
             ("x-forwarded-for", "127.0.0.1"),
@@ -152,7 +152,7 @@ async fn end_to_end() {
     )
     .await;
     assert_eq!(r.body["go"], true);
-    assert_eq!(r.body["uri"], "/api/domains/list?page=1");
+    assert_eq!(r.body["uri"], "/api/askai/project/list?page=1");
     assert_eq!(
         r.body["x_forwarded_for"], "203.0.113.9",
         "spoofed XFF replaced"
@@ -220,7 +220,7 @@ async fn end_to_end() {
     assert_eq!(r.body["code"], 0, "API tokens skip the entrance");
     // Only the token issued last works, on Go's routes too.
     let replaced = bearer(&token(1, "api_token", "api-0"));
-    for path in ["/api/tags/list", "/api/domains/list"] {
+    for path in ["/api/tags/list", "/api/askai/project/list"] {
         let r = call(&gated, path, &[("authorization", &replaced)], false).await;
         assert_eq!(
             (r.body["code"].clone(), r.body.get("go")),
@@ -293,9 +293,9 @@ async fn end_to_end() {
     )
     .await;
     assert_eq!(r.body["code"], 0);
-    let r = call(&based, "/billionmail/api/domains/list", &[], false).await;
+    let r = call(&based, "/billionmail/api/askai/project/list", &[], false).await;
     assert_eq!(
-        r.body["uri"], "/api/domains/list",
+        r.body["uri"], "/api/askai/project/list",
         "Go receives the stripped path"
     );
 
@@ -310,7 +310,7 @@ async fn end_to_end() {
     );
     let r = call(
         &down,
-        "/api/domains/list",
+        "/api/askai/project/list",
         &[("authorization", &admin)],
         false,
     )

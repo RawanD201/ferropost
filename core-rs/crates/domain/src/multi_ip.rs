@@ -43,14 +43,19 @@ pub fn next_subnet(used: &[String], main_prefix: &str) -> Option<(String, String
 /// `172.66.1.100` whatever `IPV4_NETWORK` said, which broke `docker
 /// compose up` on a custom network).
 pub fn main_postfix_ip(ipv4_network: Option<&str>) -> String {
-    let prefix = ipv4_network
+    format!("{}.100", main_prefix(ipv4_network))
+}
+
+/// The main network's first three octets (`IPV4_NETWORK`, `172.66.1` by
+/// default).
+pub fn main_prefix(ipv4_network: Option<&str>) -> &str {
+    ipv4_network
         .map(str::trim)
         .filter(|p| {
             let parts: Vec<&str> = p.split('.').collect();
             parts.len() == 3 && parts.iter().all(|o| o.parse::<u8>().is_ok())
         })
-        .unwrap_or("172.66.1");
-    format!("{prefix}.100")
+        .unwrap_or("172.66.1")
 }
 
 fn indent_of(line: &str) -> &str {

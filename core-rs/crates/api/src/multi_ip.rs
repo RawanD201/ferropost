@@ -208,9 +208,19 @@ pub async fn apply(state: &AppState) -> Result<Applied> {
 /// IP; the SPF record is advice only (`Ok(Some(advice))`).
 pub async fn test(state: &AppState, domain: &str, outbound_ip: Ipv4Addr) -> Result<Option<String>> {
     let host = ferropost_store::domains::format_mx(&state.store.pg, domain).await?;
+    check_address(domain, &host, outbound_ip).await
+}
+
+/// [`test`] for a given mail host (a domain being created has no row
+/// yet).
+pub async fn check_address(
+    domain: &str,
+    host: &str,
+    outbound_ip: Ipv4Addr,
+) -> Result<Option<String>> {
     let addresses: Vec<std::net::IpAddr> = match tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::net::lookup_host((host.as_str(), 25)),
+        tokio::net::lookup_host((host, 25)),
     )
     .await
     {
@@ -230,8 +240,40 @@ pub async fn test(state: &AppState, domain: &str, outbound_ip: Ipv4Addr) -> Resu
         spf.as_deref(),
         &outbound_ip.to_string(),
         domain,
-        &host,
+        host,
     ))
+}
+
+/// Gives a domain a dedicated sending address (Go: `AddConfig`) on the
+/// next free network; it is used once applied. Check the address first
+/// ([`check_address`]).
+pub async fn add_config(state: &AppState, domain: &str, outbound_ip: Ipv4Addr) -> Result<()> {
+    let _one = ONE.lock().await;
+    let pg = &state.store.pg;
+    let used = store::used_subnets(pg).await?;
+    let network = state.config.env.get("IPV4_NETWORK");
+    let (subnet, postfix_ip) = rules::next_subnet(&used, rules::main_prefix(network.as_deref()))
+        .context(
+            "No available subnet, maximum number of multi-IP domain configurations supported by the system has been reached",
+        )?;
+    let ip = outbound_ip.to_string();
+    let stamp = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+    let (smtp_server_name, network_name, aliases) = rules::names(domain, &ip, &stamp);
+    store::add(
+        pg,
+        &store::NewDedicatedIp {
+            domain,
+            outbound_ip: &ip,
+            network_name: &network_name,
+            subnet: &subnet,
+            postfix_ip: &postfix_ip,
+            aliases: &aliases,
+            smtp_server_name: &smtp_server_name,
+        },
+        chrono::Utc::now().timestamp(),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Replaces the host's SNAT rules with the active configurations' (Go's

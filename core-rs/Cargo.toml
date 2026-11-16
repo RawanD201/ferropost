@@ -72,6 +72,13 @@ unsafe_code = "forbid"
 all = { level = "warn", priority = -1 }
 unwrap_used = "warn"
 
+# RSA key generation (DKIM keys, ACME) is very slow unoptimised.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+
+[profile.dev.package.rsa]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

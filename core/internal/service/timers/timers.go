@@ -44,23 +44,25 @@ func Start(ctx context.Context) (err error) {
 		})
 	}
 
-	// Start DNS Records checking
-	// Ensure the DNS records are fresh on startup
-	gtimer.AddOnce(500*time.Millisecond, func() {
-		// repair DKIM signing config
-		err = domains.RepairDKIMSigningConfig(ctx)
+	// Start DNS Records checking, unless the Rust core runs it.
+	if !OwnedByRust("domains") {
+		// Ensure the DNS records are fresh on startup
+		gtimer.AddOnce(500*time.Millisecond, func() {
+			// repair DKIM signing config
+			err = domains.RepairDKIMSigningConfig(ctx)
 
-		if err != nil {
-			g.Log().Warning(ctx, "RepairDKIMSigningConfig failed: ", err)
-			err = nil
-		}
+			if err != nil {
+				g.Log().Warning(ctx, "RepairDKIMSigningConfig failed: ", err)
+				err = nil
+			}
 
-		domains.FreshRecords(ctx)
-	})
-	// Check DNS Records every 5 minutes
-	gtimer.Add(5*time.Minute, func() {
-		domains.FreshRecords(ctx)
-	})
+			domains.FreshRecords(ctx)
+		})
+		// Check DNS Records every 5 minutes
+		gtimer.Add(5*time.Minute, func() {
+			domains.FreshRecords(ctx)
+		})
+	}
 
 	// Start maillog analysis and aggregation, unless the Rust core runs them.
 	if !OwnedByRust("maillog") {
@@ -99,7 +101,9 @@ func Start(ctx context.Context) (err error) {
 		if !OwnedByRust("mail_services") {
 			mail_service.FixPostfixMainConfig(ctx)
 		}
-		mail_service.FixRspamdDKIMSigningConfig(ctx)
+		if !OwnedByRust("domains") {
+			mail_service.FixRspamdDKIMSigningConfig(ctx)
+		}
 		if !OwnedByRust("ssl") {
 			mail_service.FixDovecotSSLConfig(ctx)
 		}

@@ -115,3 +115,113 @@ pub async fn first_ipv4(host: &str) -> Option<std::net::Ipv4Addr> {
     .ok()?;
     found.iter().next().map(|a| a.0)
 }
+
+/// How long one record check may wait for DNS.
+const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn fqdn(name: &str) -> String {
+    format!("{}.", name.trim_end_matches('.'))
+}
+
+/// An answer for the record checks: no such name or record is an empty
+/// answer; a timeout or server failure is `TempFail`.
+async fn answer<T, L, F>(
+    lookup: F,
+    read: impl FnOnce(L) -> Vec<T>,
+) -> Result<Vec<T>, ferropost_domain::spf::TempFail>
+where
+    F: std::future::Future<Output = Result<L, hickory_resolver::error::ResolveError>>,
+{
+    use ferropost_domain::spf::TempFail;
+    match tokio::time::timeout(CHECK_TIMEOUT, lookup).await {
+        Ok(Ok(found)) => Ok(read(found)),
+        Ok(Err(err)) => match err.kind() {
+            ResolveErrorKind::NoRecordsFound { .. } => Ok(Vec::new()),
+            _ => Err(TempFail),
+        },
+        Err(_) => Err(TempFail),
+    }
+}
+
+/// TXT records of `name`, each one's strings joined.
+pub async fn txt(name: &str) -> Result<Vec<String>, ferropost_domain::spf::TempFail> {
+    answer(RESOLVER.txt_lookup(fqdn(name)), |found| {
+        found
+            .iter()
+            .map(|txt| {
+                txt.txt_data()
+                    .iter()
+                    .map(|part| String::from_utf8_lossy(part))
+                    .collect::<String>()
+            })
+            .collect()
+    })
+    .await
+}
+
+/// A and AAAA records of `name`.
+pub async fn addresses(
+    name: &str,
+) -> Result<Vec<std::net::IpAddr>, ferropost_domain::spf::TempFail> {
+    let name = fqdn(name);
+    let (v4, v6) = tokio::join!(
+        answer(RESOLVER.ipv4_lookup(name.as_str()), |found| {
+            found.iter().map(|a| std::net::IpAddr::V4(a.0)).collect()
+        }),
+        answer(RESOLVER.ipv6_lookup(name.as_str()), |found| {
+            found.iter().map(|a| std::net::IpAddr::V6(a.0)).collect()
+        }),
+    );
+    match (v4, v6) {
+        (Err(err), Err(_)) => Err(err),
+        (v4, v6) => Ok(v4
+            .unwrap_or_default()
+            .into_iter()
+            .chain(v6.unwrap_or_default())
+            .collect()),
+    }
+}
+
+/// The exchanges of `name`'s MX records, without the final dot.
+pub async fn mx_hosts(name: &str) -> Result<Vec<String>, ferropost_domain::spf::TempFail> {
+    answer(RESOLVER.mx_lookup(fqdn(name)), |found| {
+        found
+            .iter()
+            .map(|mx| mx.exchange().to_ascii().trim_end_matches('.').to_owned())
+            .collect()
+    })
+    .await
+}
+
+/// The PTR names of `ip`, without the final dot.
+pub async fn ptr_names(
+    ip: std::net::IpAddr,
+) -> Result<Vec<String>, ferropost_domain::spf::TempFail> {
+    answer(RESOLVER.reverse_lookup(ip), |found| {
+        found
+            .iter()
+            .map(|ptr| ptr.to_string().trim_end_matches('.').to_owned())
+            .collect()
+    })
+    .await
+}
+
+/// The system resolver, for SPF evaluation.
+pub struct Dns;
+
+impl ferropost_domain::spf::Resolver for Dns {
+    async fn txt(&self, name: &str) -> Result<Vec<String>, ferropost_domain::spf::TempFail> {
+        txt(name).await
+    }
+
+    async fn addresses(
+        &self,
+        name: &str,
+    ) -> Result<Vec<std::net::IpAddr>, ferropost_domain::spf::TempFail> {
+        addresses(name).await
+    }
+
+    async fn mx(&self, name: &str) -> Result<Vec<String>, ferropost_domain::spf::TempFail> {
+        mx_hosts(name).await
+    }
+}

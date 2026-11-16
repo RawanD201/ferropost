@@ -62,6 +62,8 @@ pub struct Caches {
     pub spf_records: Cache<String, Option<String>>,
     /// HTTP-01 key authorizations by token, while an order is validated.
     pub acme_challenges: Cache<String, String>,
+    /// Each domain's DNS records as last checked (Go kept them ten minutes).
+    pub dns_records: Cache<String, ferropost_domain::domains::DnsRecords>,
 }
 
 impl Caches {
@@ -80,6 +82,7 @@ impl Caches {
             relay_status: ttl_cache(Duration::from_secs(900), 10_000),
             spf_records: ttl_cache(Duration::from_secs(180), 10_000),
             acme_challenges: ttl_cache(Duration::from_secs(600), 1_000),
+            dns_records: ttl_cache(Duration::from_secs(600), 10_000),
         }
     }
 }

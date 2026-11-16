@@ -9,6 +9,7 @@ mod campaigns;
 mod contact_groups;
 mod contacts;
 mod docker_api;
+mod domains;
 mod email_template;
 mod files;
 mod languages;
@@ -65,6 +66,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(ssl::routes())
         .merge(multi_ip::routes())
         .merge(blocklist::routes())
+        .merge(domains::routes())
         .merge(docker_api::routes())
         .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it

@@ -268,6 +268,9 @@ const [Modal, modalApi] = useModal({
 				form.quota_unit = quota.split(' ')[1]
 				form.mailboxes = row.mailboxes
 				form.email = row.email
+				// Saving sends these back: an empty dedicated IP removes it.
+				form.outbound_ip = row.multi_ip_domains?.outbound_ip ?? ''
+				urls.value = row.urls?.length ? [...row.urls] : ['https://']
 			}
 		} else {
 			form.domain = ''

@@ -47,10 +47,11 @@ everything. supervisord sets it for both programs.
 | `api_mail` | `ProcessApiMailQueueWithLock` | Sends mail queued through the send API (`api_mail_logs`) continuously, woken as soon as the API queues mail (Go polled once a minute), with the same claim-and-settle queue as campaigns. |
 | `mailboxes` | `NormalizeMailboxes`, `InitQuotaPluginAndUpdateUsedSpace`, `UpdateMailboxesUsedSpace`, `CheckMailboxesQuotaAlerts` | At start-up lower-cases addresses and, once per install, enables Dovecot's maildir quota. Hourly: reads every `maildirsize` into `used_quota` and the domain totals, and mails 90%/95% quota alerts (once a day per level, across restarts). |
 | `relay` | `CheckRelayFirstSync`, `EnsurePostfixConfExists`, `UpdateRelayStatus` | At start-up runs Go's one-off `main.cf` migration (same marker file) and writes the relays to Postfix. Every 5 minutes tests each active relay's connection and login; the console shows the result (Go's check read a table that no longer exists). |
-| `mail_services` | `FixPostfixMainConfig` | Five seconds after start-up checks `main.cf` (server name, header checks that hide authenticated senders' IPs, a real `myhostname`) and reloads Postfix only if it changed. Go keeps `FixRspamdDKIMSigningConfig` and `FixDovecotSSLConfig` until the domains move, since they repair files the domains code writes. |
+| `mail_services` | `FixPostfixMainConfig` | Five seconds after start-up checks `main.cf` (server name, header checks that hide authenticated senders' IPs, a real `myhostname`) and reloads Postfix only if it changed. |
 | `ssl` | `AutoRenewSSL`, `FixDovecotSSLConfig` | Every 12 hours renews certificates this server obtained with a third of their lifetime left (uploaded ones in their last week), obtains missing mail host certificates (a failed host is retried after a day), and at start-up moves Dovecot's per-host SSL blocks after the global settings. |
 | `multi_ip` | `ReapplyAllIptablesRules` | Three seconds after start-up replaces the host's SNAT rules (dedicated network → sending IP) in one privileged helper run, removing stale ones even when no dedicated IP is left. |
 | `blacklist` | `CheckDomainsBlacklist` | Once a day (first pass ten minutes after start-up, then 24 hours after the last one, across restarts) checks every mail host's address on the DNS blocklists, three hours apart for up to eight domains as Go did, and mails the alert recipients about a listing. Honours the automatic-scan switch. |
+| `domains` | `FreshRecords`, `RepairDKIMSigningConfig`, `FixRspamdDKIMSigningConfig` | At start-up makes missing DKIM keys, rewrites rspamd's `dkim_signing.conf` only if it changed (Go rewrote it and restarted rspamd at every start) and makes existing private keys readable by rspamd only. Every 5 minutes checks every domain's DNS records (cached for the domain list) and makes keys that went missing. Go keeps `UpdateBaseURL`, which only fills Go's own memory for the routes it still serves. |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -77,6 +78,7 @@ everything. supervisord sets it for both programs.
 | `/api/services/*`, `/api/mail_bcc/*`, `/api/mail_forward/*`, `/api/postfix_queue/*` (all 19 routes) | Mail services: the editor for Postfix's, Dovecot's and rspamd's main configuration file (checked by the service before it stays), BCC rules and their Postfix maps, mail forwarding (`alias`), the deferred queue and Postfix's queue settings. |
 | `/api/ssl/apply_cert`, `/api/ssl/console_apply_cert`, `/api/ssl/get_cert_list`, `/api/domains/set_ssl`, `/api/domains/get_ssl`, `/.well-known/acme-challenge/*` | Mail host and console certificates: Let's Encrypt over HTTP-01 (challenges answered here; Go's own still reach Go), uploads, and installation in Postfix's and Dovecot's SNI. |
 | `/api/multi_ip_domain/apply`, `/api/multi_ip_domain/test` | Dedicated sending IPs: writes `docker-compose_addnetwork.yml` on the host and Postfix's transports (undone on failure), and checks a domain's address and SPF records for its IP. |
+| `/api/domains/*` (all 8 routes) | Sending domains: create, update, brand flag, delete, list, all, refresh DNS records, default domain. A new domain gets Go's five system mailboxes, its DKIM keys and its mail host certificate, as before. |
 | `/api/domain_blocklist/check`, `/api/domain_blocklist/logs` | Checks a mail host on 139 DNS blocklists in the background and serves the check's log. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
@@ -112,7 +114,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_DOVECOT_CONTAINER` | `dovecot-billionmail` | Container where `doveadm` runs (`none` disables) |
 | `FERROPOST_ACME_DIRECTORY` | Let's Encrypt | ACME directory certificates come from (e.g. its staging directory) |
 | `FERROPOST_RSPAMD_URL` | `http://rspamd:11334` (container) / `http://127.0.0.1:21334` | rspamd's controller, behind `/rspamd/` |
-| `FERROPOST_RSPAMD_CONTAINER` | `rspamd-billionmail` | Restarted when DKIM signing changes (`none` disables) |
+| `FERROPOST_RSPAMD_CONTAINER` | `rspamd-billionmail` | Restarted when DKIM keys or signing change (`none` disables) |
 | `FERROPOST_CORE_CONTAINER` | `core-billionmail` | This container, restarted for the API docs switch (`none` disables) |
 | `FERROPOST_DOCKER` | on | `none` keeps every call away from the Docker socket (tests, development) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
@@ -434,6 +436,36 @@ These are security fixes that keep the frontend working unchanged:
   dedicated IP's transport is really deleted (Go looked for `domain`, but
   `bm.sh` stores `@domain`), and applying with none left removes the old
   transports from `master.cf`.
+- **Domains:** the list no longer sends every domain's TLS private key,
+  and `all` marks the default domain (Go never did, so the campaign form
+  could not preselect it). An update changes only what it is given: Go
+  set `active` to 1 and the brand flag to 0 unless sent (the console sends
+  neither, so every edit cleared the flag), removed the dedicated address
+  when the field was absent (the console's form never filled it in; the
+  form now does), and could not turn the catch-all address off. A
+  dedicated address is checked before the domain is created, so a failed
+  check no longer leaves a half-made domain. Deleting a domain also
+  removes its BCC rules, dedicated address and default-domain setting and
+  stops rspamd signing for it (Go left all of these); mail on disk and the
+  DKIM keys stay, so the published records still match if it comes back.
+  Unknown domains are refused instead of "updated" or "deleted".
+- **DNS records:** checked by meaning, not as text. SPF is evaluated
+  (RFC 7208) for the address mail leaves from: Go wanted the expected
+  `ip4:` term spelled out, so a policy covering the server through `mx`,
+  `a` or an include looked wrong, `ip4:1.2.3.45` passed for `1.2.3.4`, and
+  two SPF records (which break SPF) passed. DKIM keys are compared tag by
+  tag (Go wanted the exact text, so other spacing or an extra tag looked
+  missing). DMARC needs one record with a policy (Go tested its own
+  expected value, so any `v=DMARC1` record passed, even two of them). Host
+  names compare without case. A dedicated sending address is part of the
+  SPF and PTR records (Go asked for the shared address's PTR). Listing
+  domains never makes keys or restarts rspamd; Go made missing keys there
+  and restarted rspamd once per key.
+- **DKIM keys:** made here instead of by `rspamadm` in the rspamd
+  container; an existing private key is never replaced (a missing public
+  half is derived from it, where Go made a new pair and the published
+  record stopped matching); private keys belong to rspamd's user, mode
+  0600 (Go: 0644).
 - **Blocklist checks:** lists are queried 16 at a time through the
   system resolver, and "no record" is a definite answer; Go asked Google's
   resolver one list after another, retrying and sleeping on every clean
@@ -465,5 +497,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

@@ -187,7 +187,7 @@ pub async fn sync(state: &AppState) -> Result<()> {
     if changed {
         reload_postfix(state).await?;
     }
-    if let Err(err) = sync_dkim_signing(state).await {
+    if let Err(err) = crate::dkim::sync_signing(state).await {
         tracing::warn!(error = %format!("{err:#}"), "DKIM signing config not updated");
     }
     Ok(())
@@ -204,58 +204,6 @@ async fn reload_postfix(state: &AppState) -> Result<()> {
         crate::docker::exec_ok(container, cmd).await?;
     }
     Ok(())
-}
-
-/// rspamd signs every domain except those sent through an active relay,
-/// whose provider signs them (Go's `RepairDKIMSigningConfig`; generating
-/// missing keys stays with the domains service). Restarts rspamd only when
-/// the file changed. Returns whether it did.
-pub async fn sync_dkim_signing(state: &AppState) -> Result<bool> {
-    let dir = state.config.rspamd_local_d.clone();
-    if !dir.is_dir() {
-        tracing::debug!(path = %dir.display(), "rspamd local.d missing; DKIM signing not written");
-        return Ok(false);
-    }
-    let pg = &state.store.pg;
-    let relayed = store::relayed_domains(pg).await?;
-    let domains: Vec<String> = store::all_domains(pg)
-        .await?
-        .into_iter()
-        .filter(|d| !relayed.contains(&d.to_ascii_lowercase()))
-        .collect();
-    let keys = state.config.rspamd_data_dir.join("dkim");
-    for domain in &domains {
-        for selector in ["default", "short"] {
-            if !keys
-                .join(domain)
-                .join(format!("{selector}.private"))
-                .exists()
-            {
-                tracing::warn!(%domain, selector, "DKIM key missing");
-            }
-        }
-    }
-    let path = dir.join("dkim_signing.conf");
-    // Go writes the same file in its own domain order: the same domains in
-    // another order is no change (rewriting would restart rspamd each time
-    // either core wrote it).
-    let mut wanted = domains.clone();
-    wanted.sort();
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current.starts_with("sign_headers")
-        && current.contains("\nuse_esld = false;")
-        && rules::dkim_signed_domains(&current) == wanted
-    {
-        return Ok(false);
-    }
-    let content = rules::dkim_signing_conf(&domains);
-    let changed = tokio::task::spawn_blocking(move || write_if_changed(&path, &content, None))
-        .await
-        .map_err(|e| anyhow!("write DKIM signing config: {e}"))??;
-    if changed {
-        crate::docker::restart_named(&state.config, &state.config.rspamd_container).await?;
-    }
-    Ok(changed)
 }
 
 /// Go's one-off migration of hand-written transport maps, then a sync.
