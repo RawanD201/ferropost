@@ -28,6 +28,7 @@ pub mod lang;
 pub mod mail_tls;
 pub mod mailbox_jobs;
 pub mod maildir;
+pub mod multi_ip;
 pub mod postfix;
 pub mod postfix_queue;
 pub mod proxy;

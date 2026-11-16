@@ -11,6 +11,7 @@ pub mod mail;
 pub mod mail_services;
 pub mod mailboxes;
 pub mod maillog;
+pub mod multi_ip;
 pub mod overview;
 pub mod paging;
 pub mod postfix;

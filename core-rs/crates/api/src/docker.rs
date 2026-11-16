@@ -367,6 +367,126 @@ pub async fn restart_core_soon(config: &Config) {
     }
 }
 
+/// The image for a one-off helper on the host: the core container's own
+/// (already present; Go pulled whatever `alpine:latest` was), else the
+/// Alpine release the core image is built on.
+async fn helper_image(config: &Config, docker: &Docker) -> Result<String> {
+    if config.core_container != "none"
+        && let Ok(list) = platform_containers(config).await
+        && let Some(core) = list.into_iter().find(|c| {
+            c.names
+                .iter()
+                .any(|n| n.trim_start_matches('/').contains(&config.core_container))
+        })
+        && let Ok(inspected) = docker
+            .inspect_container(
+                &core.id,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await
+        && let Some(image) = inspected.image
+    {
+        return Ok(image);
+    }
+    const FALLBACK: &str = "alpine:3.20";
+    if docker.inspect_image(FALLBACK).await.is_err() {
+        let mut pull = docker.create_image(
+            Some(bollard::query_parameters::CreateImageOptions {
+                from_image: Some("alpine".to_owned()),
+                tag: Some("3.20".to_owned()),
+                ..Default::default()
+            }),
+            None,
+            None,
+        );
+        while let Some(step) = pull.next().await {
+            step.context("pull alpine:3.20")?;
+        }
+    }
+    Ok(FALLBACK.to_owned())
+}
+
+/// Runs `cmd` on the host: in a throw-away privileged container that
+/// mounts the host's root at `/host_root` (as Go's `ExecHostCommand`), so
+/// `chroot /host_root <program>` runs the host's own program. The command
+/// is an argument list, never a shell string. Returns the exit code and
+/// the combined output.
+pub async fn run_on_host(config: &Config, cmd: &[&str]) -> Result<(i64, String)> {
+    use bollard::models::{ContainerCreateBody, HostConfig};
+    let docker = connect(config)?;
+    let image = helper_image(config, &docker).await?;
+    let created = docker
+        .create_container(
+            None::<bollard::query_parameters::CreateContainerOptions>,
+            ContainerCreateBody {
+                image: Some(image),
+                cmd: Some(cmd.iter().map(|c| (*c).to_owned()).collect()),
+                entrypoint: Some(Vec::new()),
+                working_dir: Some("/host_root".to_owned()),
+                labels: Some(std::collections::HashMap::from([(
+                    "ferropost.helper".to_owned(),
+                    "host".to_owned(),
+                )])),
+                host_config: Some(HostConfig {
+                    privileged: Some(true),
+                    binds: Some(vec!["/:/host_root".to_owned()]),
+                    network_mode: Some("host".to_owned()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .context("create host helper")?;
+    let id = created.id;
+    let outcome = async {
+        docker
+            .start_container(
+                &id,
+                None::<bollard::query_parameters::StartContainerOptions>,
+            )
+            .await
+            .context("start host helper")?;
+        let mut wait =
+            docker.wait_container(&id, None::<bollard::query_parameters::WaitContainerOptions>);
+        let mut code = -1;
+        while let Some(status) = wait.next().await {
+            match status {
+                Ok(s) => code = s.status_code,
+                // A non-zero exit arrives as an error carrying the code.
+                Err(bollard::errors::Error::DockerContainerWaitError { code: c, .. }) => code = c,
+                Err(e) => return Err(anyhow::Error::from(e).context("wait for host helper")),
+            }
+        }
+        let mut logs = docker.logs(
+            &id,
+            Some(bollard::query_parameters::LogsOptions {
+                stdout: true,
+                stderr: true,
+                ..Default::default()
+            }),
+        );
+        let mut output = String::new();
+        while let Some(chunk) = logs.next().await {
+            output.push_str(&chunk?.to_string());
+        }
+        Ok::<_, anyhow::Error>((code, output.trim().to_owned()))
+    };
+    let result = tokio::time::timeout(Duration::from_secs(120), outcome)
+        .await
+        .context("host helper timed out");
+    let _ = docker
+        .remove_container(
+            &id,
+            Some(bollard::query_parameters::RemoveContainerOptions {
+                force: true,
+                ..Default::default()
+            }),
+        )
+        .await;
+    result?
+}
+
 /// The directory on the host that holds `docker-compose.yml` (Go: the
 /// core container's Compose label), for the `bm.sh` commands the console
 /// shows.

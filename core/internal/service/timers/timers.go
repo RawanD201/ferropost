@@ -181,9 +181,11 @@ func Start(ctx context.Context) (err error) {
 	}
 
 	// update iptable
-	gtimer.AddOnce(3*time.Second, func() {
-		multi_ip_domain.ReapplyAllIptablesRules(ctx)
-	})
+	if !OwnedByRust("multi_ip") {
+		gtimer.AddOnce(3*time.Second, func() {
+			multi_ip_domain.ReapplyAllIptablesRules(ctx)
+		})
+	}
 
 	if !OwnedByRust("mailboxes") {
 		// Updated: Used space in the mailbox

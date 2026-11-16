@@ -14,6 +14,7 @@ pub mod groups;
 pub mod mail_services;
 pub mod mailboxes;
 pub mod maillog;
+pub mod multi_ip;
 pub mod options;
 pub mod overview;
 pub mod ratelimit;

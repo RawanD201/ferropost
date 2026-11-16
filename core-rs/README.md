@@ -49,6 +49,7 @@ everything. supervisord sets it for both programs.
 | `relay` | `CheckRelayFirstSync`, `EnsurePostfixConfExists`, `UpdateRelayStatus` | At start-up runs Go's one-off `main.cf` migration (same marker file) and writes the relays to Postfix. Every 5 minutes tests each active relay's connection and login; the console shows the result (Go's check read a table that no longer exists). |
 | `mail_services` | `FixPostfixMainConfig` | Five seconds after start-up checks `main.cf` (server name, header checks that hide authenticated senders' IPs, a real `myhostname`) and reloads Postfix only if it changed. Go keeps `FixRspamdDKIMSigningConfig` and `FixDovecotSSLConfig` until the domains move, since they repair files the domains code writes. |
 | `ssl` | `AutoRenewSSL`, `FixDovecotSSLConfig` | Every 12 hours renews certificates this server obtained with a third of their lifetime left (uploaded ones in their last week), obtains missing mail host certificates (a failed host is retried after a day), and at start-up moves Dovecot's per-host SSL blocks after the global settings. |
+| `multi_ip` | `ReapplyAllIptablesRules` | Three seconds after start-up replaces the host's SNAT rules (dedicated network → sending IP) in one privileged helper run, removing stale ones even when no dedicated IP is left. |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -74,6 +75,7 @@ everything. supervisord sets it for both programs.
 | `/api/relay/*` (all 6 routes) | SMTP relays: list, add, edit, delete, unbound domains, connection test. Writes `master.cf`, `main.cf`, `sasl_passwd` and the pgsql maps, reloading Postfix only when they change, and rspamd's DKIM signing (relayed domains are signed by the provider). |
 | `/api/services/*`, `/api/mail_bcc/*`, `/api/mail_forward/*`, `/api/postfix_queue/*` (all 19 routes) | Mail services: the editor for Postfix's, Dovecot's and rspamd's main configuration file (checked by the service before it stays), BCC rules and their Postfix maps, mail forwarding (`alias`), the deferred queue and Postfix's queue settings. |
 | `/api/ssl/apply_cert`, `/api/ssl/console_apply_cert`, `/api/ssl/get_cert_list`, `/api/domains/set_ssl`, `/api/domains/get_ssl`, `/.well-known/acme-challenge/*` | Mail host and console certificates: Let's Encrypt over HTTP-01 (challenges answered here; Go's own still reach Go), uploads, and installation in Postfix's and Dovecot's SNI. |
+| `/api/multi_ip_domain/apply`, `/api/multi_ip_domain/test` | Dedicated sending IPs: writes `docker-compose_addnetwork.yml` on the host and Postfix's transports (undone on failure), and checks a domain's address and SPF records for its IP. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -419,6 +421,17 @@ These are security fixes that keep the frontend working unchanged:
   and a host without an address record fails before Let's Encrypt is
   asked. Keys are RSA 2048, as Go's were. Not yet run against Let's Encrypt
   itself: the order flow is `instant-acme`'s.
+- **Dedicated IPs:** host commands run as argument lists in one helper
+  container started from the core's own image; Go pulled `alpine:latest`
+  and pasted database values into a `sh -c` string, one privileged
+  container per rule. Old SNAT rules are deleted by specification (Go used
+  line numbers, which move when Docker edits the chain) and are removed
+  once no dedicated IP is left. Postfix joins the main network at
+  `<IPV4_NETWORK>.100` (Go hard-coded `172.66.1.100`, breaking a custom
+  network), the rewritten compose file keeps its blank lines, a removed
+  dedicated IP's transport is really deleted (Go looked for `domain`, but
+  `bm.sh` stores `@domain`), and applying with none left removes the old
+  transports from `master.cf`.
 - **rspamd interface:** Go accepted any token it had kept in its server
   session, which only held one after the browser's last call to a route Go
   served (so the interface stopped working as routes moved here) and kept
@@ -440,5 +453,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

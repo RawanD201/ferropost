@@ -308,7 +308,7 @@ pub async fn reset_schema(store: &Store) {
              mailstat_senders, mailstat_deferred_mails, recipient_info, unsubscribe_records,
              domain, mailbox, abnormal_recipient, bm_campaign_warmup, bm_sender_ip_warmup,
              bm_sender_ip_mail_provider, api_ip_whitelist, api_mail_logs, api_templates,
-             bm_relay_config, bm_relay_domain_mapping, bm_domain_smtp_transport, alias, bm_bcc, letsencrypts CASCADE",
+             bm_relay_config, bm_relay_domain_mapping, bm_domain_smtp_transport, alias, bm_bcc, letsencrypts, bm_multi_ip_domain CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -440,6 +440,13 @@ pub async fn reset_schema(store: &Store) {
             id SERIAL PRIMARY KEY, email VARCHAR(320) NOT NULL, group_id INTEGER,
             template_id INTEGER, task_id INTEGER,
             unsubscribe_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()))",
+        "CREATE TABLE bm_multi_ip_domain (
+            id SERIAL PRIMARY KEY, domain VARCHAR(255) NOT NULL, outbound_ip VARCHAR(45) NOT NULL,
+            network_name VARCHAR(100) NOT NULL, subnet VARCHAR(20) NOT NULL,
+            postfix_ip VARCHAR(45) NOT NULL, aliases VARCHAR(255) NOT NULL,
+            smtp_server_name VARCHAR(100) NOT NULL, active smallint NOT NULL DEFAULT 1,
+            create_time int NOT NULL default 0, update_time int NOT NULL default 0,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending', UNIQUE(domain, outbound_ip))",
         "CREATE TABLE letsencrypts (
             cert_id SERIAL PRIMARY KEY, account_id INTEGER NOT NULL DEFAULT 0,
             issuer TEXT NOT NULL DEFAULT '', not_after TEXT NOT NULL DEFAULT '',

@@ -859,6 +859,7 @@ dependencies = [
  "csv",
  "hex",
  "hmac 0.12.1",
+ "ipnet",
  "regex",
  "serde",
  "serde_json",

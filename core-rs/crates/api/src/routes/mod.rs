@@ -15,6 +15,7 @@ mod mail_bcc;
 mod mail_forward;
 mod mail_services;
 mod mailboxes;
+mod multi_ip;
 mod operation_log;
 mod overview;
 mod postfix_queue;
@@ -61,6 +62,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(mail_forward::routes())
         .merge(postfix_queue::routes())
         .merge(ssl::routes())
+        .merge(multi_ip::routes())
         .merge(docker_api::routes())
         .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it
