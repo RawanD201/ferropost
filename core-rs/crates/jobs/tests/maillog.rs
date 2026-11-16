@@ -1,5 +1,6 @@
 //! Mail-log ingestion against a real PostgreSQL. Runs only when
-//! `FERROPOST_TEST_DATABASE_URL` is set; recreates the tables it uses.
+//! `FERROPOST_TEST_DATABASE_URL` is set; empties the database and applies
+//! the store's migrations, so the tables are the real ones.
 
 use std::io::Write;
 use std::path::Path;
@@ -13,49 +14,12 @@ async fn pool() -> Option<PgPool> {
 }
 
 async fn reset(pg: &PgPool) {
-    let ddl = [
-        "DROP TABLE IF EXISTS mailstat_removed, mailstat_message_ids, mailstat_senders, mailstat_send_mails,
-              mailstat_receive_mails, mailstat_deferred_mails, bm_options, domain CASCADE",
-        // DDL copied from core/internal/service/database_initialization.
-        "CREATE TABLE mailstat_removed (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED)",
-        "CREATE TABLE mailstat_message_ids (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            message_id TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_senders (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            size INTEGER NOT NULL DEFAULT 0, sender TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_send_mails (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            status TEXT NOT NULL DEFAULT '', recipient TEXT NOT NULL DEFAULT '',
-            mail_provider TEXT NOT NULL DEFAULT '', delay REAL NOT NULL DEFAULT 0,
-            delays TEXT NOT NULL DEFAULT '', dsn TEXT NOT NULL DEFAULT '',
-            relay TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_receive_mails (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            status TEXT NOT NULL DEFAULT '', recipient TEXT NOT NULL DEFAULT '',
-            delay REAL NOT NULL DEFAULT 0, delays TEXT NOT NULL DEFAULT '',
-            dsn TEXT NOT NULL DEFAULT '', relay TEXT NOT NULL DEFAULT '',
-            description TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_deferred_mails (id SERIAL PRIMARY KEY,
-            postfix_message_id TEXT NOT NULL DEFAULT '', log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            delay REAL NOT NULL DEFAULT 0, delays TEXT NOT NULL DEFAULT '',
-            dsn TEXT NOT NULL DEFAULT '', relay TEXT NOT NULL DEFAULT '',
-            description TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE bm_options (name VARCHAR(255) NOT NULL PRIMARY KEY, value TEXT NOT NULL)",
-        "CREATE TABLE domain (domain VARCHAR(255) PRIMARY KEY, a_record VARCHAR(255) NOT NULL DEFAULT '',
-            active SMALLINT NOT NULL DEFAULT 1)",
-        "INSERT INTO domain (domain) VALUES ('ex.com')",
-    ];
-    for sql in ddl {
+    for sql in ["DROP SCHEMA public CASCADE", "CREATE SCHEMA public"] {
         sqlx::query(sql).execute(pg).await.expect(sql);
     }
+    ferropost_store::migrate(pg).await.expect("migrations");
+    let fixture = "INSERT INTO domain (domain) VALUES ('ex.com')";
+    sqlx::query(fixture).execute(pg).await.expect(fixture);
 }
 
 fn append(path: &Path, text: &str) {

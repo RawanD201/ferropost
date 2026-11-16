@@ -1029,7 +1029,23 @@ GET_FILE_LOG() {
     # Get log file name and directory
     LOG_FILE="${LOG_FILES[$NAME_FILE]}"
     LOG_DIR="${LOG_DIRS[$NAME_FILE]}"
-    
+
+    # The Ferropost core writes one daily log, logs/core/out/<date>.log
+    # (named by UTC date); errors are its WARN and ERROR lines.
+    if [[ "${NAME_FILE}" == "core" || "${NAME_FILE}" == "core-error" ]]; then
+        CORE_LOG=$(ls -t logs/core/out/*.log 2>/dev/null | head -n 1)
+        if [ -n "${CORE_LOG}" ] && [ ! -f "logs/${LOG_DIR}/${LOG_FILE}" ]; then
+            if [ "${NAME_FILE}" == "core" ]; then
+                tail ${follow} -n ${log_num} "${CORE_LOG}"
+            elif [ -n "${follow}" ]; then
+                tail -f -n 0 "${CORE_LOG}" | grep --line-buffered -E ' (WARN|ERROR) '
+            else
+                grep -E ' (WARN|ERROR) ' "${CORE_LOG}" | tail -n ${log_num}
+            fi
+            return
+        fi
+    fi
+
     # Check and display log files
     if [ -f "logs/${LOG_DIR}/${LOG_FILE}" ]; then
         tail ${follow} -n ${log_num} "logs/${LOG_DIR}/${LOG_FILE}"

@@ -1,5 +1,6 @@
 //! The hourly warmup pass against a real PostgreSQL. Runs only when
-//! `FERROPOST_TEST_DATABASE_URL` is set; recreates the tables it uses.
+//! `FERROPOST_TEST_DATABASE_URL` is set; empties the database and applies
+//! the store's migrations, so the tables are the real ones.
 //! Expected scores and limits were computed with Go's expressions.
 
 use ferropost_domain::warmup::DAY;
@@ -17,54 +18,12 @@ async fn pool() -> Option<PgPool> {
 }
 
 async fn reset(pg: &PgPool) {
-    let ddl = [
-        "DROP TABLE IF EXISTS domain, mailstat_senders, mailstat_send_mails, mailstat_opened,
-              mailstat_clicked, mailstat_complaints, bm_sender_ip_warmup,
-              bm_sender_ip_mail_provider CASCADE",
-        // DDL copied from core/internal/service/database_initialization.
-        "CREATE TABLE domain (domain VARCHAR(255) PRIMARY KEY, a_record VARCHAR(255) NOT NULL DEFAULT '',
-            create_time INT NOT NULL DEFAULT 0, active SMALLINT NOT NULL DEFAULT 1)",
-        "CREATE TABLE mailstat_senders (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            size INTEGER NOT NULL DEFAULT 0, sender TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_send_mails (postfix_message_id TEXT PRIMARY KEY,
-            log_time_millis BIGINT NOT NULL DEFAULT 0,
-            log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
-            status TEXT NOT NULL DEFAULT '', recipient TEXT NOT NULL DEFAULT '',
-            mail_provider TEXT NOT NULL DEFAULT '', delay REAL NOT NULL DEFAULT 0,
-            delays TEXT NOT NULL DEFAULT '', dsn TEXT NOT NULL DEFAULT '',
-            relay TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_opened (id SERIAL PRIMARY KEY, campaign_id INTEGER NOT NULL DEFAULT 0,
-            log_time_millis BIGINT NOT NULL DEFAULT 0, recipient TEXT NOT NULL DEFAULT '',
-            postfix_message_id TEXT NOT NULL DEFAULT '', message_id TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_clicked (id SERIAL PRIMARY KEY, campaign_id INTEGER NOT NULL DEFAULT 0,
-            log_time_millis BIGINT NOT NULL DEFAULT 0, recipient TEXT NOT NULL DEFAULT '',
-            url TEXT NOT NULL DEFAULT '', postfix_message_id TEXT NOT NULL DEFAULT '',
-            message_id TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE mailstat_complaints (id SERIAL PRIMARY KEY,
-            postfix_message_id TEXT NOT NULL DEFAULT '', recipient TEXT NOT NULL DEFAULT '',
-            log_time_millis BIGINT NOT NULL DEFAULT 0)",
-        "CREATE TABLE bm_sender_ip_warmup (
-            id serial primary key, sender_ip text not null default '',
-            period integer not null default 45, score integer not null default 40,
-            last_evaluate_time integer not null default 0, progress integer not null default 0,
-            re_warmups integer not null default 0,
-            begin_time integer not null DEFAULT EXTRACT(EPOCH FROM NOW()),
-            end_time integer not null default 0,
-            create_time integer DEFAULT EXTRACT(EPOCH FROM NOW()),
-            update_time integer DEFAULT EXTRACT(EPOCH FROM NOW()))",
-        "CREATE TABLE bm_sender_ip_mail_provider (
-            id serial primary key, sender_ip text not null default '',
-            mail_provider text not null default 'other', score integer not null default 40,
-            last_evaluate_time integer not null default 0,
-            create_time integer not null default EXTRACT(EPOCH FROM NOW()),
-            update_time integer not null default EXTRACT(EPOCH FROM NOW()))",
-        "INSERT INTO domain (domain, active) VALUES ('example.test', 1), ('off.test', 0)",
-    ];
-    for sql in ddl {
+    for sql in ["DROP SCHEMA public CASCADE", "CREATE SCHEMA public"] {
         sqlx::query(sql).execute(pg).await.expect(sql);
     }
+    ferropost_store::migrate(pg).await.expect("migrations");
+    let fixture = "INSERT INTO domain (domain, active) VALUES ('example.test', 1), ('off.test', 0)";
+    sqlx::query(fixture).execute(pg).await.expect(fixture);
 }
 
 /// One logged message: sender, delivery status and DSN, minutes before NOW.
