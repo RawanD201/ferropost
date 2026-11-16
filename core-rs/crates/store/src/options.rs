@@ -47,3 +47,21 @@ pub async fn get_string(pg: &PgPool, name: &str) -> Result<Option<String>> {
         .map(|raw| serde_json::from_str::<String>(&raw).unwrap_or(raw))
         .filter(|v| !v.trim().is_empty()))
 }
+
+/// Writes a string option the way Go's options manager does (strings are
+/// stored as they are).
+pub async fn set_string(pg: &PgPool, name: &str, value: &str) -> Result<()> {
+    set(pg, name, value).await
+}
+
+/// A boolean option (Go stores `true`/`false`); `None` when unset or not
+/// a boolean.
+pub async fn get_bool(pg: &PgPool, name: &str) -> Result<Option<bool>> {
+    Ok(get(pg, name)
+        .await?
+        .and_then(|raw| serde_json::from_str::<bool>(raw.trim()).ok()))
+}
+
+pub async fn set_bool(pg: &PgPool, name: &str, value: bool) -> Result<()> {
+    set(pg, name, if value { "true" } else { "false" }).await
+}

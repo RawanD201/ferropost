@@ -50,6 +50,12 @@ pub struct Config {
     /// Container where `doveadm` runs (quota recalculation, reloads);
     /// `none` disables those calls.
     pub dovecot_container: String,
+    /// The container this service runs in, restarted for the settings
+    /// that need it (`none` disables restarts).
+    pub core_container: String,
+    /// `FERROPOST_DOCKER=none` keeps every call away from the Docker socket
+    /// (development, tests).
+    pub docker_enabled: bool,
     /// Mail storage shared with Dovecot (`<root>/../vmail-data`).
     pub vmail_dir: PathBuf,
     /// Dovecot configuration shared with its container (`<root>/../conf/dovecot`).
@@ -186,6 +192,9 @@ impl Config {
                 .unwrap_or_else(|| "postfix-billionmail".to_owned()),
             dovecot_container: var("FERROPOST_DOVECOT_CONTAINER")
                 .unwrap_or_else(|| "dovecot-billionmail".to_owned()),
+            core_container: var("FERROPOST_CORE_CONTAINER")
+                .unwrap_or_else(|| "core-billionmail".to_owned()),
+            docker_enabled: var("FERROPOST_DOCKER").is_none_or(|v| v != "none"),
             vmail_dir: root.join("../vmail-data"),
             dovecot_conf_dir: root.join("../conf/dovecot"),
             smtp_host: var("FERROPOST_SMTP_HOST")

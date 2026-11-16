@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 /// How often the file's mtime is checked at most.
@@ -17,6 +17,8 @@ const RECHECK_INTERVAL: Duration = Duration::from_secs(2);
 pub struct EnvFile {
     path: PathBuf,
     state: RwLock<State>,
+    /// Serialises [`EnvFile::update`]'s read-modify-write.
+    writing: Mutex<()>,
 }
 
 #[derive(Debug)]
@@ -42,6 +44,7 @@ impl EnvFile {
                 mtime,
                 checked_at: Instant::now(),
             }),
+            writing: Mutex::new(()),
         }
     }
 
@@ -53,6 +56,7 @@ impl EnvFile {
                 mtime: None,
                 checked_at: Instant::now(),
             }),
+            writing: Mutex::new(()),
         }
     }
 
@@ -70,6 +74,41 @@ impl EnvFile {
     pub fn flag(&self, key: &str) -> bool {
         self.get(key)
             .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    }
+
+    /// Sets keys, rewriting the file like Go's settings page did: the first
+    /// line of each key is replaced, other lines and comments are kept, new
+    /// keys are appended. Written in place, since the file may be a single
+    /// bind-mounted file that cannot be replaced by a rename. Values with
+    /// line breaks are refused (they could add other settings).
+    pub fn update(&self, changes: &[(&str, &str)]) -> std::io::Result<()> {
+        if changes
+            .iter()
+            .any(|(k, v)| k.is_empty() || k.contains(['=', '\n', '\r']) || v.contains(['\n', '\r']))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "settings cannot contain line breaks",
+            ));
+        }
+        let _writing = self.writing.lock().unwrap_or_else(|e| e.into_inner());
+        if self.path.as_os_str().is_empty() {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut values = (*state.values).clone();
+            for (k, v) in changes {
+                values.insert((*k).to_owned(), (*v).to_owned());
+            }
+            state.values = Arc::new(values);
+            return Ok(());
+        }
+        let content = std::fs::read_to_string(&self.path).unwrap_or_default();
+        std::fs::write(&self.path, rewrite(&content, changes))?;
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let (values, mtime) = read(&self.path);
+        state.values = Arc::new(values);
+        state.mtime = mtime;
+        state.checked_at = Instant::now();
+        Ok(())
     }
 
     fn snapshot(&self) -> Arc<HashMap<String, String>> {
@@ -107,6 +146,29 @@ fn read(path: &Path) -> (HashMap<String, String>, Option<SystemTime>) {
     (parse(&content), mtime)
 }
 
+/// The file with `changes` applied (see [`EnvFile::update`]).
+pub fn rewrite(content: &str, changes: &[(&str, &str)]) -> String {
+    let mut pending: Vec<(&str, &str)> = changes.to_vec();
+    let mut out: Vec<String> = Vec::new();
+    for line in content.lines() {
+        let key = line.trim().split_once('=').map(|(k, _)| k.trim());
+        let replaced = key
+            .filter(|_| !line.trim_start().starts_with('#'))
+            .and_then(|k| pending.iter().position(|(c, _)| *c == k));
+        match replaced {
+            Some(i) => {
+                let (k, v) = pending.remove(i);
+                out.push(format!("{k}={v}"));
+            }
+            None => out.push(line.to_owned()),
+        }
+    }
+    out.extend(pending.into_iter().map(|(k, v)| format!("{k}={v}")));
+    let mut text = out.join("\n");
+    text.push('\n');
+    text
+}
+
 /// Parses `KEY=VALUE` lines. Blank lines and `#` comments are skipped, keys
 /// and values are trimmed and the first occurrence of a key wins (as in Go).
 pub fn parse(content: &str) -> HashMap<String, String> {
@@ -128,6 +190,22 @@ pub fn parse(content: &str) -> HashMap<String, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn rewrites_like_go() {
+        let content = "# comment\nA=1\nB = 2\nA=dup\n";
+        assert_eq!(
+            rewrite(content, &[("A", "9"), ("C", "3")]),
+            "# comment\nA=9\nB = 2\nA=dup\nC=3\n"
+        );
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(".env");
+        std::fs::write(&path, content).expect("write");
+        let env = EnvFile::load(&path);
+        env.update(&[("B", "5")]).expect("update");
+        assert_eq!(env.get("B").as_deref(), Some("5"));
+        assert!(env.update(&[("B", "x\nEVIL=1")]).is_err());
+    }
 
     #[test]
     fn parses_like_go() {

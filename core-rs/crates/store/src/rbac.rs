@@ -97,3 +97,57 @@ pub async fn account_access(pg: &PgPool, account_id: i64) -> Result<Option<(i32,
         None => Ok(None),
     }
 }
+
+/// The console administrator whose login `.env` holds (`ADMIN_USERNAME`,
+/// `ADMIN_PASSWORD`), found as Go's start-up sync finds it: the first
+/// account with the admin role, else the account named `username`.
+pub async fn admin_account_id(pg: &PgPool, username: &str) -> Result<Option<i64>> {
+    let by_role: Option<i64> = sqlx::query_scalar(
+        "SELECT ar.account_id::bigint FROM account_role ar JOIN role r ON r.role_id = ar.role_id
+          WHERE r.role_name = 'admin' ORDER BY ar.account_id LIMIT 1",
+    )
+    .fetch_optional(pg)
+    .await?;
+    if by_role.is_some() {
+        return Ok(by_role);
+    }
+    Ok(
+        sqlx::query_scalar("SELECT account_id::bigint FROM account WHERE username = $1")
+            .bind(username)
+            .fetch_optional(pg)
+            .await?,
+    )
+}
+
+/// Whether another account already uses `username`.
+pub async fn username_taken(pg: &PgPool, username: &str, except: i64) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM account WHERE username = $1 AND account_id <> $2)",
+    )
+    .bind(username)
+    .bind(except as i32)
+    .fetch_one(pg)
+    .await?)
+}
+
+/// Changes an account's user name and/or password hash.
+pub async fn set_login(
+    pg: &PgPool,
+    account_id: i64,
+    username: Option<&str>,
+    password_hash: Option<&str>,
+    now: i32,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE account SET username = COALESCE($2, username), password = COALESCE($3, password),
+                update_time = $4
+          WHERE account_id = $1",
+    )
+    .bind(account_id as i32)
+    .bind(username)
+    .bind(password_hash)
+    .bind(now)
+    .execute(pg)
+    .await?;
+    Ok(())
+}

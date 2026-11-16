@@ -68,6 +68,9 @@ everything. supervisord sets it for both programs.
 | `/pmta/<token>` (open pixel, click redirect) | Accepts Go's existing links. Counts an event and redirects only for mail this server sent, and only to `http`/`https`; stores the clicked URL; activity updates are immediate. |
 | `/api/overview`, `/api/overview/failed` | Three queries instead of one per tile and chart; buckets generated in the server time zone (`TZ`) with calendar months; campaign filter counts each message once. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
+| `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
+| `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
+| `/api/file/download`, `/api/file/read` | Never implemented in Go; answered natively (501) so no file path reaches the proxy. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
 Everything else is served by Go through the proxy.
@@ -96,6 +99,8 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `TZ` | `UTC` | Time zone of dashboard chart buckets |
 | `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
 | `FERROPOST_DOVECOT_CONTAINER` | `dovecot-billionmail` | Container where `doveadm` runs (`none` disables) |
+| `FERROPOST_CORE_CONTAINER` | `core-billionmail` | This container, restarted for the API docs switch (`none` disables) |
+| `FERROPOST_DOCKER` | on | `none` keeps every call away from the Docker socket (tests, development) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
 | `FERROPOST_SMTP_HOST` / `FERROPOST_SMTP_PORT` | `postfix` (container) / `localhost`, 25 | Where subscription mail is submitted |
 | `RUST_LOG` | `info` | Log filter |
@@ -323,6 +328,34 @@ These are security fixes that keep the frontend working unchanged:
   visitor's name pasted into the HTML. Group names and the address are
   escaped on the pages, and the form token is signed with an expiry instead
   of a server session. The page still lists every group, as in Go.
+- **Settings:** `get_system_config` no longer sends the admin password, the
+  console's TLS private key or the alert mailbox password, and sends the API
+  token to admins only. `.env` values are checked against a shell-safe
+  allow-list: `bm.sh` sources `.env` as root, and Go's blocklist let spaces
+  and quotes through, so a password like `x touch /tmp/p` ran a command.
+  Keys that only apply when `bm.sh` recreates the containers (ports, time
+  zone, Docker network, fail2ban, database and Redis credentials) are
+  refused; Go wrote them and restarted the core, which applied nothing and,
+  for the HTTP ports, left the console listening on a port Docker does not
+  publish. A new admin login is applied to the account at once, by admins
+  only, and never written to the audit log in clear. The IP whitelist takes
+  CIDR ranges, refuses changes that would lock out the caller, and switches
+  off when emptied. A certificate is saved only with its own key, files are
+  replaced atomically and the key is never logged (Go logged it); the server
+  picks it up within a minute instead of restarting. The alert mailbox logs
+  in over verified TLS, its password is kept when the console sends it back
+  empty (for the same server only) and its file is private.
+- **API token:** only the token issued last works, on every route including
+  those Go still serves; Go never checked, so regenerating it left every
+  earlier token working forever. Regenerating is reserved to admins.
+- **Docker API:** only the platform's containers are listed, inspected or
+  restarted; Go restarted or read any container on the host. CPU usage is
+  correct on cgroup v2 hosts (Go showed 0%) and memory excludes the page
+  cache, as `docker stats` does.
+- **Options cache:** Go keeps `bm_options` in memory for 24 hours, so the
+  reverse-proxy URL and the blacklist switches written here reach Go's
+  remaining users (domains, the blacklist check) after its next restart,
+  until those move in step 5g.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -333,5 +366,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API; relay; mail_services and the rspamd proxy; domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay; mail_services and the rspamd proxy; domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

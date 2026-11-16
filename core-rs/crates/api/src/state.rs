@@ -50,6 +50,10 @@ pub struct Caches {
     /// Public base URL per sender domain (`""` for the global one).
     pub base_urls: Cache<String, String>,
     pub token_keys: Cache<(), ferropost_sender::tokens::TokenKeys>,
+    /// The API token issued last (`API_TOKEN`); older ones are refused.
+    pub api_token: Cache<(), Option<Arc<str>>>,
+    /// Host directory of `docker-compose.yml`.
+    pub compose_dir: Cache<(), Option<String>>,
 }
 
 impl Caches {
@@ -63,6 +67,8 @@ impl Caches {
             deferred_queue: ttl_cache(Duration::from_secs(120), 1),
             base_urls: ttl_cache(Duration::from_secs(300), 10_000),
             token_keys: ttl_cache(Duration::from_secs(300), 1),
+            api_token: ttl_cache(Duration::from_secs(10), 1),
+            compose_dir: ttl_cache(Duration::from_secs(3600), 1),
         }
     }
 }

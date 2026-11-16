@@ -117,6 +117,25 @@ impl JwtVerifier {
         (claims.sub.as_deref() == Some(REFRESH_SUBJECT) && claims.exp.is_some()).then_some(claims)
     }
 
+    /// A new API token for `account_id` (Go's `GenerateApiToken`): no
+    /// expiry, so it stays valid until the next one is issued.
+    pub fn issue_api_token(&self, account_id: i64, username: &str) -> String {
+        let now = chrono::Utc::now().timestamp();
+        let claims = serde_json::json!({
+            "accountId": account_id,
+            "username": username,
+            "roles": [ADMIN_ROLE],
+            "apiToken": true,
+            "iat": now,
+            "nbf": now,
+            "iss": ISSUER,
+            "sub": API_SUBJECT,
+            "jti": random_hex(32),
+        });
+        jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &self.signing)
+            .unwrap_or_default()
+    }
+
     /// Issues an access and refresh token in Go's format, tied to `sid`.
     pub fn issue_pair(
         &self,
@@ -205,6 +224,33 @@ pub async fn revoked(state: &AppState, claims: &Claims) -> Result<bool, ApiError
     }
 }
 
+/// Whether `token`, an API token, is the one issued last. Go never checked,
+/// so regenerating the token left every earlier one working.
+pub async fn api_token_current(state: &AppState, token: &str) -> Result<bool, ApiError> {
+    let pg = state.store.pg.clone();
+    let current = state
+        .caches
+        .api_token
+        .try_get_with((), async move {
+            ferropost_store::options::get_string(&pg, API_TOKEN_OPTION)
+                .await
+                .map(|t| t.map(|t| Arc::<str>::from(t.trim())))
+        })
+        .await
+        .map_err(|e| ApiError::Unavailable(format!("load API token: {e:#}")))?;
+    Ok(current.is_some_and(|current| {
+        current.len() == token.len()
+            && current
+                .bytes()
+                .zip(token.bytes())
+                .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                == 0
+    }))
+}
+
+/// Option holding the API token (Go's name).
+pub const API_TOKEN_OPTION: &str = "API_TOKEN";
+
 /// Route layer for every authenticated API route.
 pub async fn require_auth(
     State(state): State<AppState>,
@@ -222,6 +268,9 @@ pub async fn require_auth(
     // when Redis failed; here an unavailable Redis rejects the request.
     if claims.exp.is_some() && revoked(&state, &claims).await? {
         return Err(ApiError::Unauthorized(String::new()));
+    }
+    if claims.api_token && !api_token_current(&state, token).await? {
+        return Err(ApiError::Unauthorized("API token revoked".to_owned()));
     }
 
     // `None` for an account that is disabled or gone: Go kept honouring

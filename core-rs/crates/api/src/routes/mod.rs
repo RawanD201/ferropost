@@ -7,12 +7,15 @@ mod abnormal_recipient;
 mod campaigns;
 mod contact_groups;
 mod contacts;
+mod docker_api;
 mod email_template;
+mod files;
 mod languages;
 mod mailboxes;
 mod operation_log;
 mod overview;
 mod send_api;
+mod settings;
 mod sign_in;
 mod subscription_form;
 pub(crate) mod subscriptions;
@@ -44,7 +47,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(overview::routes())
         .merge(mailboxes::routes())
         .merge(abnormal_recipient::routes())
-        .merge(send_api::routes());
+        .merge(send_api::routes())
+        .merge(settings::routes())
+        .merge(docker_api::routes())
+        .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it
     // runs; otherwise Go serves them next to its own sender.
     if state.config.runs_job(crate::campaigns::JOB) {

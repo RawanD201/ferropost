@@ -90,6 +90,24 @@ async fn gate(
         return Some((StatusCode::FORBIDDEN, "IP not allowed").into_response());
     }
 
+    // A replaced API token is refused on every route, those Go still
+    // serves included (Go itself never checked).
+    if path.starts_with("/api/")
+        && let Some(token) = bearer_token(headers)
+        && state.jwt.verify(token).is_some_and(|c| c.api_token)
+    {
+        match crate::auth::api_token_current(state, token).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return Some(
+                    crate::envelope::ApiError::Unauthorized("API token revoked".to_owned())
+                        .into_response(),
+                );
+            }
+            Err(err) => return Some(err.into_response()),
+        }
+    }
+
     // Without a SafePath there is nothing more to enforce.
     let safe_path = env
         .get("SafePath")
@@ -208,7 +226,7 @@ pub(crate) async fn server_public_ip(state: &AppState) -> Option<IpAddr> {
 }
 
 /// Whitelist entries are single addresses; CIDR ranges are accepted too.
-fn parse_net(entry: &str) -> Option<IpNet> {
+pub(crate) fn parse_net(entry: &str) -> Option<IpNet> {
     let entry = entry.trim();
     entry.parse::<IpNet>().ok().or_else(|| {
         entry

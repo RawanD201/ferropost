@@ -234,6 +234,50 @@ impl Mailer {
         Ok(Self { transport })
     }
 
+    /// A mailer for an outside server (the blacklist alert sender). TLS is
+    /// required and the certificate verified: implicit TLS on port 465,
+    /// STARTTLS elsewhere. Only a server on a loopback address is spoken to
+    /// in clear, as the password then never leaves the machine.
+    pub fn external(config: &SmtpConfig) -> Result<Self> {
+        let host = config.host.trim();
+        let loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
+        let tls = if loopback {
+            Tls::None
+        } else {
+            let params = TlsParameters::builder(host.to_owned()).build_rustls()?;
+            if config.port == 465 {
+                Tls::Wrapper(params)
+            } else {
+                Tls::Required(params)
+            }
+        };
+        let transport = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
+            .port(config.port)
+            .tls(tls)
+            .credentials(Credentials::new(
+                config.username.clone(),
+                config.password.clone(),
+            ))
+            .authentication(vec![Mechanism::Plain, Mechanism::Login])
+            .timeout(Some(Duration::from_secs(20)))
+            .pool_config(PoolConfig::new().max_size(1))
+            .build();
+        Ok(Self { transport })
+    }
+
+    /// Connects and logs in without sending anything.
+    pub async fn test_connection(&self) -> Result<()> {
+        if !self.transport.test_connection().await? {
+            bail!("the server did not answer");
+        }
+        Ok(())
+    }
+
     pub async fn send(&self, mail: &Outgoing) -> Result<()> {
         let message = build(mail)?;
         self.transport

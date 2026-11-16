@@ -203,7 +203,13 @@ async fn end_to_end() {
         r.body
     );
 
-    let api_token = bearer(&token(1, "api_token", "api-1"));
+    let issued = token(1, "api_token", "api-1");
+    sqlx::query("INSERT INTO bm_options (name, value) VALUES ('API_TOKEN', $1)")
+        .bind(&issued)
+        .execute(&h.store.pg)
+        .await
+        .expect("api token");
+    let api_token = bearer(&issued);
     let r = call(
         &gated,
         "/api/tags/list",
@@ -212,6 +218,17 @@ async fn end_to_end() {
     )
     .await;
     assert_eq!(r.body["code"], 0, "API tokens skip the entrance");
+    // Only the token issued last works, on Go's routes too.
+    let replaced = bearer(&token(1, "api_token", "api-0"));
+    for path in ["/api/tags/list", "/api/domains/list"] {
+        let r = call(&gated, path, &[("authorization", &replaced)], false).await;
+        assert_eq!(
+            (r.body["code"].clone(), r.body.get("go")),
+            (json!(401), None),
+            "{path}: {}",
+            r.body
+        );
+    }
 
     let r = call(&gated, "/s3cret", &[], true).await;
     assert_eq!(r.status, StatusCode::FOUND);
