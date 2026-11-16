@@ -236,7 +236,7 @@ func Start(ctx context.Context) (err error) {
 // reads the same variable and runs exactly those, so no job runs twice.
 func OwnedByRust(job string) bool {
 	for _, name := range strings.Split(os.Getenv("FERROPOST_RUST_JOBS"), ",") {
-		if strings.TrimSpace(name) == job {
+		if name = strings.TrimSpace(name); name == job || name == "all" {
 			return true
 		}
 	}

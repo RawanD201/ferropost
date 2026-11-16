@@ -74,8 +74,7 @@ if [ ! -f "/opt/billionmail/core/logs/access-$(date -u +"%Y%m%d").log" ]; then
 fi
 
 cd /opt/billionmail/core/
-chmod +x billionmail
-[ -f ferropost ] && chmod +x ferropost
+chmod +x ferropost
 
 
 exec "$@"

@@ -95,8 +95,10 @@ pub struct Config {
 }
 
 impl Config {
+    /// Whether this process runs a background job (`FERROPOST_RUST_JOBS`
+    /// lists them, or says `all` once Go is gone).
     pub fn runs_job(&self, job: &str) -> bool {
-        self.rust_jobs.iter().any(|j| j == job)
+        self.rust_jobs.iter().any(|j| j == job || j == "all")
     }
 }
 
@@ -361,6 +363,13 @@ mod tests {
         assert_eq!(cfg.https_port, 8443);
         assert_eq!(cfg.trusted_proxies.len(), 2);
         assert!(cfg.runs_job("maillog") && cfg.runs_job("other") && !cfg.runs_job("x"));
+        let all = Config::from_sources(PathBuf::from("/x"), env(&[]), |k| match k {
+            "FERROPOST_RUST_JOBS" => Some("all".to_owned()),
+            "FERROPOST_JWT_SECRET" => Some("s".to_owned()),
+            _ => None,
+        })
+        .expect("config");
+        assert!(all.runs_job("campaigns") && all.runs_job("log_maintenance"));
     }
 
     #[test]

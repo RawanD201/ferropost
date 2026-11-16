@@ -9,13 +9,12 @@ ENV LC_ALL=C.UTF-8
 
 # Platform-specific binary copy
 ARG TARGETARCH
-COPY core/billionmail-${TARGETARCH} /opt/billionmail/core/billionmail
-# Rust front server, built by core-rs/build.sh
+# The Ferropost core, built by core-rs/build.sh
 COPY core/ferropost-${TARGETARCH} /opt/billionmail/core/ferropost
+# manifest: the console version shown in Settings
 COPY core/manifest /opt/billionmail/core/manifest
 COPY core/languages /opt/billionmail/core/languages
 COPY core/public /opt/billionmail/core/public
-COPY core/resource /opt/billionmail/core/resource
 COPY core/template /opt/billionmail/core/template
 
 # Copy file
@@ -38,7 +37,7 @@ RUN apk add --no-cache \
     iptables \
     ipset \
     && rm -rf /var/cache/apk/* \
-    && chmod +x /stop-supervisor.sh /core.sh /restart_fail2ban.sh /opt/billionmail/core/billionmail /opt/billionmail/core/ferropost
+    && chmod +x /stop-supervisor.sh /core.sh /restart_fail2ban.sh /opt/billionmail/core/ferropost
 
 # Copy file
 

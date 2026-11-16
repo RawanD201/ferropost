@@ -114,7 +114,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_SERVER_IP` | looked up online | Public IP always allowed by the whitelist |
 | `FERROPOST_JWT_SECRET` | `DBPASS`+`REDISPASS` | Must match Go's `jwt.secret` if that is set |
 | `FERROPOST_ACCESS_LOG_DIR` | `$FERROPOST_ROOT/logs` | fail2ban access log directory |
-| `FERROPOST_RUST_JOBS` | none | Background jobs owned by Rust (see below); read by Go too |
+| `FERROPOST_RUST_JOBS` | none | Background jobs owned by Rust (see below), or `all`; read by Go too |
 | `TZ` | `UTC` | Time zone of dashboard chart buckets |
 | `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
 | `FERROPOST_DOVECOT_CONTAINER` | `dovecot-billionmail` | Container where `doveadm` runs (`none` disables) |
@@ -166,13 +166,14 @@ an applied migration must never change.
 ## Build and deploy
 
 `sh core-rs/build.sh [all|x86|arm]` builds static musl binaries in Docker and
-writes `core/ferropost-<arch>`, next to the Go binaries from
-`core/go-build.sh`. The core image copies both. supervisord runs Go with
-`FERROPOST_GO_INTERNAL_ADDR=127.0.0.1:8181` and `ferropost` on the public ports.
+writes `core/ferropost-<arch>`, which the core image copies. supervisord runs
+`ferropost` alone, with `FERROPOST_GO_UPSTREAM=none` (no Go fallback) and
+`FERROPOST_RUST_JOBS=all` (every background job).
 
-**Rollback:** remove the `environment=` line from `[program:core]` and the
-`[program:ferropost]` block in `Dockerfiles/core/supervisord.conf`. Go then
-owns the ports again.
+**Rollback to the Go core:** check out `Dockerfiles/core/` from before step 6d
+(commit `6bdea793`), build the Go binaries with `core/go-build.sh` and the
+image again: Go then runs in internal mode behind `ferropost`, as during the
+migration. The Go source stays in `core/` until it is removed for good.
 
 ## Porting a domain
 
@@ -575,4 +576,4 @@ These are security fixes that keep the frontend working unchanged:
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
 5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted (done)
-6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files and Roundcube (done); the image without Go
+6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files and Roundcube (done); the image without Go (done). Left: removing the Go source; Go's generated API docs (`/swagger`) are gone with it
