@@ -14,6 +14,7 @@ mod languages;
 mod mailboxes;
 mod operation_log;
 mod overview;
+mod relay;
 mod send_api;
 mod settings;
 mod sign_in;
@@ -49,6 +50,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(abnormal_recipient::routes())
         .merge(send_api::routes())
         .merge(settings::routes())
+        .merge(relay::routes())
         .merge(docker_api::routes())
         .merge(files::routes());
     // Campaign routes act on the sender, so they are native only where it

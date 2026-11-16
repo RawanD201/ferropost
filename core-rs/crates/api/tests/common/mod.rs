@@ -115,6 +115,7 @@ pub fn config(
         ("FERROPOST_POSTFIX_CONTAINER", "none".to_owned()),
         ("FERROPOST_DOVECOT_CONTAINER", "none".to_owned()),
         ("FERROPOST_CORE_CONTAINER", "none".to_owned()),
+        ("FERROPOST_RSPAMD_CONTAINER", "none".to_owned()),
         ("FERROPOST_DOCKER", "none".to_owned()),
         // Mail goes to the harness's sink, or to a closed port: never to an
         // MTA that happens to listen on the test machine.
@@ -306,7 +307,8 @@ pub async fn reset_schema(store: &Store) {
              mailstat_message_ids, mailstat_opened, mailstat_clicked, mailstat_send_mails,
              mailstat_senders, mailstat_deferred_mails, recipient_info, unsubscribe_records,
              domain, mailbox, abnormal_recipient, bm_campaign_warmup, bm_sender_ip_warmup,
-             bm_sender_ip_mail_provider, api_ip_whitelist, api_mail_logs, api_templates CASCADE",
+             bm_sender_ip_mail_provider, api_ip_whitelist, api_mail_logs, api_templates,
+             bm_relay_config, bm_relay_domain_mapping, bm_domain_smtp_transport CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -438,6 +440,22 @@ pub async fn reset_schema(store: &Store) {
             id SERIAL PRIMARY KEY, email VARCHAR(320) NOT NULL, group_id INTEGER,
             template_id INTEGER, task_id INTEGER,
             unsubscribe_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()))",
+        "CREATE TABLE bm_relay_config (
+            id BIGSERIAL PRIMARY KEY, remark varchar(255), rtype varchar(30),
+            relay_host varchar(255) NOT NULL, relay_port varchar(10) NOT NULL,
+            auth_user varchar(255) NOT NULL, auth_password varchar(255) NOT NULL,
+            ip varchar(255), host varchar(255), helo_name varchar(255),
+            skip_tls_verify smallint DEFAULT 0, smtp_name varchar(50),
+            active smallint NOT NULL DEFAULT 1, auth_method varchar(20),
+            create_time int NOT NULL default 0, update_time int NOT NULL default 0)",
+        "CREATE TABLE bm_relay_domain_mapping (
+            id BIGSERIAL PRIMARY KEY, relay_id BIGINT NOT NULL,
+            sender_domain varchar(255) NOT NULL, create_time int NOT NULL default 0)",
+        "CREATE UNIQUE INDEX idx_relay_domain_mapping_unique
+            ON bm_relay_domain_mapping(relay_id, sender_domain)",
+        "CREATE TABLE bm_domain_smtp_transport (
+            id BIGSERIAL PRIMARY KEY, atype varchar(50) NOT NULL DEFAULT 'relay',
+            domain varchar(255) NOT NULL, smtp_name varchar(255) NOT NULL, unique(domain))",
         "CREATE TABLE domain (
             domain varchar(255) NOT NULL, a_record varchar(255) NOT NULL DEFAULT '',
             mailboxes int NOT NULL DEFAULT 50, mailbox_quota BIGINT NOT NULL DEFAULT 5368709120,

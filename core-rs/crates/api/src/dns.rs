@@ -57,3 +57,25 @@ pub async fn mail_domain(domain: &str) -> MailDomain {
         },
     }
 }
+
+/// The domain's published SPF record (`v=spf1 ...`), if any. A failed
+/// lookup counts as none; callers only use it for advice.
+pub async fn spf_record(domain: &str) -> Option<String> {
+    let name = format!("{}.", domain.trim_end_matches('.'));
+    let lookup = tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        RESOLVER.txt_lookup(name.as_str()),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    lookup
+        .iter()
+        .map(|txt| {
+            txt.txt_data()
+                .iter()
+                .map(|part| String::from_utf8_lossy(part))
+                .collect::<String>()
+        })
+        .find(|text| text.trim_start().to_ascii_lowercase().starts_with("v=spf1"))
+}

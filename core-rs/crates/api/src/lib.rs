@@ -29,6 +29,7 @@ pub mod maildir;
 pub mod postfix_queue;
 pub mod proxy;
 pub mod rbac;
+pub mod relay;
 pub mod routes;
 pub mod state;
 pub mod system_mail;

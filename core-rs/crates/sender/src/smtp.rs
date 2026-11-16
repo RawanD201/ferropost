@@ -370,3 +370,93 @@ mod tests {
         assert_eq!(random_password().len(), 16);
     }
 }
+
+/// What a relay server answered to a connection test.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Probe {
+    /// The name in the server's greeting.
+    pub server_info: String,
+    /// `SSL/TLS`, `STARTTLS` or `None`.
+    pub tls_status: String,
+    pub auth_status: String,
+    pub connection_time_ms: i64,
+    /// Login mechanisms offered, among those this client speaks.
+    pub supported_auth: String,
+}
+
+/// Connects to a relay the way Postfix will (implicit TLS on 465, STARTTLS
+/// when offered, required on 587) and logs in when `login` is given.
+/// Certificates are not verified, as Postfix's `encrypt` level does not
+/// verify them either; the test must answer what Postfix will see.
+pub async fn probe(
+    host: &str,
+    port: u16,
+    login: Option<(&str, &str)>,
+    hello: &str,
+) -> Result<Probe> {
+    use lettre::transport::smtp::client::AsyncSmtpConnection;
+    use lettre::transport::smtp::extension::ClientId;
+
+    let started = std::time::Instant::now();
+    let hello = ClientId::Domain(hello.to_owned());
+    let tls = TlsParameters::builder(host.to_owned())
+        .dangerous_accept_invalid_certs(true)
+        .dangerous_accept_invalid_hostnames(true)
+        .build_rustls()?;
+    let wrapper = port == 465;
+    let connect = AsyncSmtpConnection::connect_tokio1(
+        (host, port),
+        Some(Duration::from_secs(10)),
+        &hello,
+        wrapper.then(|| tls.clone()),
+        None,
+    );
+    let mut conn = tokio::time::timeout(Duration::from_secs(15), connect)
+        .await
+        .context("timed out")??;
+    let mut tls_status = if wrapper { "SSL/TLS" } else { "None" };
+    if conn.can_starttls() {
+        conn.starttls(tls, &hello).await?;
+        tls_status = "STARTTLS";
+    }
+    if port == 587 && !conn.is_encrypted() {
+        conn.abort().await;
+        bail!("the server does not offer STARTTLS, which Postfix requires on port 587");
+    }
+    let info = conn.server_info();
+    let supported: Vec<&str> = [
+        (Mechanism::Plain, "PLAIN"),
+        (Mechanism::Login, "LOGIN"),
+        (Mechanism::Xoauth2, "XOAUTH2"),
+    ]
+    .into_iter()
+    .filter(|(m, _)| info.supports_auth_mechanism(*m))
+    .map(|(_, name)| name)
+    .collect();
+    let mut probe = Probe {
+        server_info: info.name().to_owned(),
+        tls_status: tls_status.to_owned(),
+        supported_auth: supported.join(", "),
+        ..Probe::default()
+    };
+    probe.auth_status = match login {
+        Some((user, password)) => {
+            let credentials = Credentials::new(user.to_owned(), password.to_owned());
+            let auth = tokio::time::timeout(
+                Duration::from_secs(15),
+                conn.auth(&[Mechanism::Plain, Mechanism::Login], &credentials),
+            )
+            .await
+            .context("login timed out")?;
+            if let Err(err) = auth {
+                conn.abort().await;
+                bail!("authentication failed: {err}");
+            }
+            "Authentication succeeded.".to_owned()
+        }
+        None => "No authentication (direct connection).".to_owned(),
+    };
+    let _ = conn.quit().await;
+    probe.connection_time_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    Ok(probe)
+}

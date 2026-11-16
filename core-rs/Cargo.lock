@@ -835,6 +835,7 @@ dependencies = [
  "cbc",
  "chrono",
  "csv",
+ "hex",
  "hmac 0.12.1",
  "regex",
  "serde",
@@ -875,6 +876,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

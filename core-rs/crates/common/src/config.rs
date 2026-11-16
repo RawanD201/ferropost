@@ -42,6 +42,16 @@ pub struct Config {
     pub rust_jobs: Vec<String>,
     pub maillog_path: PathBuf,
     pub postfix_main_cf: PathBuf,
+    /// Postfix configuration shared with its container
+    /// (`<root>/../conf/postfix`: `main.cf`, `master.cf`, `conf/`, `sql/`).
+    pub postfix_conf_dir: PathBuf,
+    /// rspamd's `local.d` (`<root>/../conf/rspamd/local.d`).
+    pub rspamd_local_d: PathBuf,
+    /// rspamd's data, DKIM keys included (`<root>/../rspamd-data`).
+    pub rspamd_data_dir: PathBuf,
+    /// Container restarted when rspamd's DKIM signing changes (`none`
+    /// disables).
+    pub rspamd_container: String,
     /// Time zone of dashboard charts (`TZ`, as docker-compose sets it).
     pub timezone: String,
     /// Container whose `postqueue` reports the deferred queue; `none`
@@ -187,6 +197,11 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.join("../logs/postfix/mail.log")),
             postfix_main_cf: root.join("../conf/postfix/main.cf"),
+            postfix_conf_dir: root.join("../conf/postfix"),
+            rspamd_local_d: root.join("../conf/rspamd/local.d"),
+            rspamd_data_dir: root.join("../rspamd-data"),
+            rspamd_container: var("FERROPOST_RSPAMD_CONTAINER")
+                .unwrap_or_else(|| "rspamd-billionmail".to_owned()),
             timezone: var("TZ").unwrap_or_else(|| "UTC".to_owned()),
             postfix_container: var("FERROPOST_POSTFIX_CONTAINER")
                 .unwrap_or_else(|| "postfix-billionmail".to_owned()),

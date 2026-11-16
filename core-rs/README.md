@@ -46,6 +46,7 @@ everything. supervisord sets it for both programs.
 | `campaigns` | `ProcessEmailTasks`, `CleanupIdleExecutors`, `UpdateTaskJoinMailstat` | Sends campaigns from the `recipient_info` queue (claims with `SKIP LOCKED`, each submission recorded as it finishes, claims released after a restart), one worker per due campaign, one sender process at a time. Refreshes each campaign's delivery counts every minute. The `/api/batch_mail/task/*` and `/tracking/*` routes are native only while this job runs in Rust, since pausing and the speed act on the sender. |
 | `api_mail` | `ProcessApiMailQueueWithLock` | Sends mail queued through the send API (`api_mail_logs`) continuously, woken as soon as the API queues mail (Go polled once a minute), with the same claim-and-settle queue as campaigns. |
 | `mailboxes` | `NormalizeMailboxes`, `InitQuotaPluginAndUpdateUsedSpace`, `UpdateMailboxesUsedSpace`, `CheckMailboxesQuotaAlerts` | At start-up lower-cases addresses and, once per install, enables Dovecot's maildir quota. Hourly: reads every `maildirsize` into `used_quota` and the domain totals, and mails 90%/95% quota alerts (once a day per level, across restarts). |
+| `relay` | `CheckRelayFirstSync`, `EnsurePostfixConfExists`, `UpdateRelayStatus` | At start-up runs Go's one-off `main.cf` migration (same marker file) and writes the relays to Postfix. Every 5 minutes tests each active relay's connection and login; the console shows the result (Go's check read a table that no longer exists). |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -68,6 +69,7 @@ everything. supervisord sets it for both programs.
 | `/pmta/<token>` (open pixel, click redirect) | Accepts Go's existing links. Counts an event and redirects only for mail this server sent, and only to `http`/`https`; stores the clicked URL; activity updates are immediate. |
 | `/api/overview`, `/api/overview/failed` | Three queries instead of one per tile and chart; buckets generated in the server time zone (`TZ`) with calendar months; campaign filter counts each message once. |
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
+| `/api/relay/*` (all 6 routes) | SMTP relays: list, add, edit, delete, unbound domains, connection test. Writes `master.cf`, `main.cf`, `sasl_passwd` and the pgsql maps, reloading Postfix only when they change, and rspamd's DKIM signing (relayed domains are signed by the provider). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
 | `/api/file/download`, `/api/file/read` | Never implemented in Go; answered natively (501) so no file path reaches the proxy. |
@@ -99,6 +101,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `TZ` | `UTC` | Time zone of dashboard chart buckets |
 | `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
 | `FERROPOST_DOVECOT_CONTAINER` | `dovecot-billionmail` | Container where `doveadm` runs (`none` disables) |
+| `FERROPOST_RSPAMD_CONTAINER` | `rspamd-billionmail` | Restarted when DKIM signing changes (`none` disables) |
 | `FERROPOST_CORE_CONTAINER` | `core-billionmail` | This container, restarted for the API docs switch (`none` disables) |
 | `FERROPOST_DOCKER` | on | `none` keeps every call away from the Docker socket (tests, development) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
@@ -352,6 +355,23 @@ These are security fixes that keep the frontend working unchanged:
   restarted; Go restarted or read any container on the host. CPU usage is
   correct on cgroup v2 hosts (Go showed 0%) and memory excludes the page
   cache, as `docker stats` does.
+- **SMTP relays:** the list no longer sends relay passwords (Go sent them
+  decrypted); an edit without a password keeps the stored one, and a
+  connection test without one uses the stored password of the relay with
+  the same server, port and user only. Edits change only the fields they
+  send: Go wiped a relay's login whenever `auth_user` was missing (the
+  console's on/off switch sends only `id` and `active`) and disabled it
+  whenever `active` was missing. Host, HELO name and login are checked
+  before they reach Postfix's files (a line break in Go's HELO name added
+  options to `master.cf`), and sender domains must be the server's own.
+  `sasl_passwd` is readable by root only (Go: by everyone); port 25 relays
+  use TLS when offered (Go turned it off, sending the password in clear);
+  two relays with one name get distinct Postfix services. Postfix is
+  reloaded and rspamd restarted only when their files change. The relay
+  maps stay in `main.cf` while dedicated-IP transports use them. The
+  connection test reports the server name, TLS and login methods; the list
+  shows each relay's real status (Go always said "Connected") and checks
+  SPF against the relay's configured SPF IP or include.
 - **Options cache:** Go keeps `bm_options` in memory for 24 hours, so the
   reverse-proxy URL and the blacklist switches written here reach Go's
   remaining users (domains, the blacklist check) after its next restart,
@@ -366,5 +386,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay; mail_services and the rspamd proxy; domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy; domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations

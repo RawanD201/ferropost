@@ -54,6 +54,10 @@ pub struct Caches {
     pub api_token: Cache<(), Option<Arc<str>>>,
     /// Host directory of `docker-compose.yml`.
     pub compose_dir: Cache<(), Option<String>>,
+    /// Last connection check per relay.
+    pub relay_status: Cache<i64, crate::relay::Status>,
+    /// Published SPF record per domain (`None`: none found).
+    pub spf_records: Cache<String, Option<String>>,
 }
 
 impl Caches {
@@ -69,6 +73,8 @@ impl Caches {
             token_keys: ttl_cache(Duration::from_secs(300), 1),
             api_token: ttl_cache(Duration::from_secs(10), 1),
             compose_dir: ttl_cache(Duration::from_secs(3600), 1),
+            relay_status: ttl_cache(Duration::from_secs(900), 10_000),
+            spf_records: ttl_cache(Duration::from_secs(180), 10_000),
         }
     }
 }

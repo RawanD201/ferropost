@@ -41,6 +41,32 @@ pub async fn exec(container: &str, cmd: &[&str]) -> Result<String> {
 }
 
 async fn run(container: &str, cmd: &[&str]) -> Result<String> {
+    Ok(run_full(container, cmd).await?.0)
+}
+
+/// Runs `cmd` and fails unless it exits with 0, with its error output in
+/// the message (Go's `ExecCommandByName` result check). `none` does nothing.
+pub async fn exec_ok(container: &str, cmd: &[&str]) -> Result<String> {
+    if container == "none" {
+        return Ok(String::new());
+    }
+    let (stdout, stderr, code) = tokio::time::timeout(TIMEOUT, run_full(container, cmd))
+        .await
+        .with_context(|| format!("{} in {container} timed out", cmd.join(" ")))??;
+    if code != Some(0) {
+        bail!(
+            "{} in {container} failed (exit {}): {}",
+            cmd.join(" "),
+            code.map_or_else(|| "unknown".to_owned(), |c| c.to_string()),
+            stderr.trim()
+        );
+    }
+    Ok(stdout)
+}
+
+/// Standard output, standard error and exit code of `cmd`.
+async fn run_full(container: &str, cmd: &[&str]) -> Result<(String, String, Option<i64>)> {
+    use bollard::container::LogOutput;
     let docker = Docker::connect_with_unix_defaults().context("connect to docker")?;
     let exec = docker
         .create_exec(
@@ -49,7 +75,7 @@ async fn run(container: &str, cmd: &[&str]) -> Result<String> {
                 cmd: Some(cmd.to_vec()),
                 user: Some("root"),
                 attach_stdout: Some(true),
-                attach_stderr: Some(false),
+                attach_stderr: Some(true),
                 ..Default::default()
             },
         )
@@ -57,13 +83,17 @@ async fn run(container: &str, cmd: &[&str]) -> Result<String> {
         .context("create exec")?;
     let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec.id, None).await?
     else {
-        return Ok(String::new());
+        return Ok((String::new(), String::new(), None));
     };
-    let mut text = String::new();
+    let (mut stdout, mut stderr) = (String::new(), String::new());
     while let Some(chunk) = output.next().await {
-        text.push_str(&chunk?.to_string());
+        match chunk? {
+            LogOutput::StdErr { message } => stderr.push_str(&String::from_utf8_lossy(&message)),
+            other => stdout.push_str(&other.to_string()),
+        }
     }
-    Ok(text)
+    let code = docker.inspect_exec(&exec.id).await?.exit_code;
+    Ok((stdout, stderr, code))
 }
 
 fn connect(config: &Config) -> Result<Docker> {
@@ -283,6 +313,23 @@ pub fn restart_soon(config: &Config, id: String) {
             tracing::error!(container = %id, error = %format!("{err:#}"), "restart failed");
         }
     });
+}
+
+/// Restarts the platform container named `name` now (`none` does nothing).
+pub async fn restart_named(config: &Config, name: &str) -> Result<()> {
+    if name == "none" || !config.docker_enabled {
+        return Ok(());
+    }
+    let container = platform_containers(config)
+        .await?
+        .into_iter()
+        .find(|c| {
+            c.names
+                .iter()
+                .any(|n| n.trim_start_matches('/').contains(name))
+        })
+        .with_context(|| format!("container {name} not found"))?;
+    restart(config, &container.id).await
 }
 
 /// Restarts the core container (this service and Go) for settings only

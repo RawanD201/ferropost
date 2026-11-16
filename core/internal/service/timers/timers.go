@@ -115,13 +115,15 @@ func Start(ctx context.Context) (err error) {
 	}
 
 	// Test the smtp relay configuration connection status
-	gtimer.AddOnce(5*time.Second, func() {
-		relay.UpdateRelayStatus(ctx)
-	})
+	if !OwnedByRust("relay") {
+		gtimer.AddOnce(5*time.Second, func() {
+			relay.UpdateRelayStatus(ctx)
+		})
 
-	gtimer.Add(5*time.Minute, func() {
-		relay.UpdateRelayStatus(ctx)
-	})
+		gtimer.Add(5*time.Minute, func() {
+			relay.UpdateRelayStatus(ctx)
+		})
+	}
 	// 续签证书 首次启动先运行一次
 	gtimer.AddOnce(1*time.Second, func() {
 		domains.AutoRenewSSL(ctx)
@@ -166,9 +168,11 @@ func Start(ctx context.Context) (err error) {
 	}
 
 	// First sync of SMTP relay configurations to Postfix after refactoring
-	gtimer.AddOnce(3*time.Second, func() {
-		relay.CheckRelayFirstSync(ctx)
-	})
+	if !OwnedByRust("relay") {
+		gtimer.AddOnce(3*time.Second, func() {
+			relay.CheckRelayFirstSync(ctx)
+		})
+	}
 
 	// update iptable
 	gtimer.AddOnce(3*time.Second, func() {
@@ -204,9 +208,11 @@ func Start(ctx context.Context) (err error) {
 		})
 	}
 
-	gtimer.AddOnce(1*time.Minute, func() {
-		relay.EnsurePostfixConfExists(ctx)
-	})
+	if !OwnedByRust("relay") {
+		gtimer.AddOnce(1*time.Minute, func() {
+			relay.EnsurePostfixConfExists(ctx)
+		})
+	}
 
 	// Video generation pipeline orchestrator
 	gtimer.Add(30*time.Second, func() {

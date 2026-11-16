@@ -16,6 +16,7 @@ base64.workspace = true
 cbc.workspace = true
 chrono.workspace = true
 csv.workspace = true
+hex.workspace = true
 hmac.workspace = true
 regex.workspace = true
 serde.workspace = true
