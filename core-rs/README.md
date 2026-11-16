@@ -42,6 +42,7 @@ everything. supervisord sets it for both programs.
 | Job | Replaces | Notes |
 |---|---|---|
 | `maillog` | `MallogEventHandler`, `AggregateMaillogsTask` | Follows `logs/postfix/mail.log` with a file cursor stored in the same transaction as the rows (exactly once; finishes `mail.log.1` after rotation; starts where Go's watermark stopped). Copies local deliveries every minute with a one-hour overlap. |
+| `warmup` | `SenderIpWarmup().PeriodicTask`, `SenderIpMailProvider().PeriodicTaskForProviders` | Hourly (and at start-up): re-scores each sending IP in warmup and each of its eight provider groups from delivery, bounce, open, click and complaint data, then moves the warmup period and progress along. One aggregate query per score instead of Go's ID lists; a lock keeps a pass from running twice. Go's campaign sender keeps reading the same tables until sending moves. |
 
 ## Ported so far
 
@@ -235,6 +236,12 @@ These are security fixes that keep the frontend working unchanged:
 - **Local-delivery aggregation** re-scans an hour of overlap, so a delivery
   logged after its sender line is no longer skipped, and matches domains
   exactly instead of with `LIKE`.
+- **IP warmup:** finishing a warmup (70,000 messages in the window) now
+  sticks. Go set the period to 0 and the next step of the same hourly pass
+  reset it to 21 or 45 days and pulled progress back below 100. Limits past
+  the seven-day schedule saturate: after about 140 days Go's conversion
+  overflowed to a negative daily limit, which stops sending, so every
+  warmup campaign stalled for good.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -244,6 +251,6 @@ These are security fixes that keep the frontend working unchanged:
 1. ~~Skeleton: config, DB, envelope, JWT/RBAC, edge, Go fallback, TLS~~ (done)
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
-4. Sending: building blocks (done); subscribe/unsubscribe flows (done); campaigns on a durable Postgres job queue; the send API; warmup and campaign stats
+4. Sending: building blocks (done); subscribe/unsubscribe flows (done); IP warmup job (done); campaigns on a durable Postgres job queue, with their stats job and the warmup rate limiter; the send API
 5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
 6. Switch off Go; move schema ownership to sqlx migrations

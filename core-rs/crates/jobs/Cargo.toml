@@ -1,6 +1,6 @@
 [package]
 name = "ferropost-jobs"
-description = "Ferropost background jobs (mail-log ingestion, aggregation)"
+description = "Ferropost background jobs (mail-log ingestion, aggregation, IP warmup)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

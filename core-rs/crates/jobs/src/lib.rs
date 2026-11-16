@@ -4,6 +4,7 @@
 //! variable and skips it, so each job has exactly one owner.
 
 pub mod maillog;
+pub mod warmup;
 
 use std::time::Duration;
 
@@ -12,8 +13,9 @@ use ferropost_store::Store;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-/// Job name shared with Go's `timers.OwnedByRust`.
+/// Job names shared with Go's `timers.OwnedByRust`.
 pub const MAILLOG: &str = "maillog";
+pub const WARMUP: &str = "warmup";
 
 const AGGREGATE_EVERY: Duration = Duration::from_secs(60);
 
@@ -31,8 +33,12 @@ pub fn spawn(
             store.pg.clone(),
         );
         tasks.push(tokio::spawn(tailer.run(shutdown.clone())));
-        tasks.push(tokio::spawn(aggregate(store.pg.clone(), shutdown)));
+        tasks.push(tokio::spawn(aggregate(store.pg.clone(), shutdown.clone())));
         tracing::info!(path = %config.maillog_path.display(), "maillog jobs started");
+    }
+    if config.runs_job(WARMUP) {
+        tasks.push(tokio::spawn(warmup::run(store.pg.clone(), shutdown)));
+        tracing::info!("warmup job started");
     }
     tasks
 }

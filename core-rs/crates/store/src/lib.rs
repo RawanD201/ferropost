@@ -19,6 +19,7 @@ pub mod tags;
 pub mod templates;
 pub mod tokens;
 pub mod tracking;
+pub mod warmup;
 pub mod whitelist;
 
 use std::time::Duration;

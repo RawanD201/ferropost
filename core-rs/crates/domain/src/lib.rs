@@ -14,4 +14,5 @@ pub mod rbac;
 pub mod tags;
 pub mod templates;
 pub mod tracking;
+pub mod warmup;
 pub mod web;

@@ -133,10 +133,12 @@ func Start(ctx context.Context) (err error) {
 	})
 
 	// Sender IP warmup and mail provider warmup
-	gtimer.Add(time.Hour, func() {
-		warmup.SenderIpWarmup().PeriodicTask(ctx)
-		warmup.SenderIpMailProvider().PeriodicTaskForProviders(ctx)
-	})
+	if !OwnedByRust("warmup") {
+		gtimer.Add(time.Hour, func() {
+			warmup.SenderIpWarmup().PeriodicTask(ctx)
+			warmup.SenderIpMailProvider().PeriodicTaskForProviders(ctx)
+		})
+	}
 
 	// fail2ban access logs detection
 	gtimer.AddOnce(800*time.Millisecond, fail2ban.NewAccessLogDetection().Start)
