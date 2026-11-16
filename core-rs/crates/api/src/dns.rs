@@ -79,3 +79,39 @@ pub async fn spf_record(domain: &str) -> Option<String> {
         })
         .find(|text| text.trim_start().to_ascii_lowercase().starts_with("v=spf1"))
 }
+
+/// A blocklist query: no record means not listed. Uses the system resolver
+/// (Go asked Google's, whose queries Spamhaus refuses).
+pub async fn dnsbl(name: &str) -> ferropost_domain::blocklist::Answer {
+    use ferropost_domain::blocklist::Answer;
+    let fqdn = format!("{}.", name.trim_end_matches('.'));
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        RESOLVER.ipv4_lookup(fqdn.as_str()),
+    )
+    .await
+    {
+        Ok(Ok(found)) => found
+            .iter()
+            .next()
+            .map_or(Answer::NotListed, |a| Answer::Address(a.0)),
+        Ok(Err(err)) => match err.kind() {
+            ResolveErrorKind::NoRecordsFound { .. } => Answer::NotListed,
+            _ => Answer::Failed,
+        },
+        Err(_) => Answer::Failed,
+    }
+}
+
+/// A host's first IPv4 address.
+pub async fn first_ipv4(host: &str) -> Option<std::net::Ipv4Addr> {
+    let fqdn = format!("{}.", host.trim_end_matches('.'));
+    let found = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        RESOLVER.ipv4_lookup(fqdn.as_str()),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    found.iter().next().map(|a| a.0)
+}

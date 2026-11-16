@@ -12,6 +12,7 @@ pub mod api_mail;
 pub mod audit;
 pub mod auth;
 pub mod base_url;
+pub mod blocklist;
 pub mod body;
 pub mod campaigns;
 pub mod captcha;

@@ -228,9 +228,11 @@ func Start(ctx context.Context) (err error) {
 	})
 
 	// Check the domain name blacklist
-	gtimer.Add(24*time.Hour, func() {
-		domains.CheckDomainsBlacklist(ctx)
-	})
+	if !OwnedByRust("blacklist") {
+		gtimer.Add(24*time.Hour, func() {
+			domains.CheckDomainsBlacklist(ctx)
+		})
+	}
 
 	gtimer.Add(24*time.Hour, func() {
 		log_maintenance.CompressAndCleanupLogs(ctx)

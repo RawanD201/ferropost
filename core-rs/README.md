@@ -50,6 +50,7 @@ everything. supervisord sets it for both programs.
 | `mail_services` | `FixPostfixMainConfig` | Five seconds after start-up checks `main.cf` (server name, header checks that hide authenticated senders' IPs, a real `myhostname`) and reloads Postfix only if it changed. Go keeps `FixRspamdDKIMSigningConfig` and `FixDovecotSSLConfig` until the domains move, since they repair files the domains code writes. |
 | `ssl` | `AutoRenewSSL`, `FixDovecotSSLConfig` | Every 12 hours renews certificates this server obtained with a third of their lifetime left (uploaded ones in their last week), obtains missing mail host certificates (a failed host is retried after a day), and at start-up moves Dovecot's per-host SSL blocks after the global settings. |
 | `multi_ip` | `ReapplyAllIptablesRules` | Three seconds after start-up replaces the host's SNAT rules (dedicated network → sending IP) in one privileged helper run, removing stale ones even when no dedicated IP is left. |
+| `blacklist` | `CheckDomainsBlacklist` | Once a day (first pass ten minutes after start-up, then 24 hours after the last one, across restarts) checks every mail host's address on the DNS blocklists, three hours apart for up to eight domains as Go did, and mails the alert recipients about a listing. Honours the automatic-scan switch. |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -76,6 +77,7 @@ everything. supervisord sets it for both programs.
 | `/api/services/*`, `/api/mail_bcc/*`, `/api/mail_forward/*`, `/api/postfix_queue/*` (all 19 routes) | Mail services: the editor for Postfix's, Dovecot's and rspamd's main configuration file (checked by the service before it stays), BCC rules and their Postfix maps, mail forwarding (`alias`), the deferred queue and Postfix's queue settings. |
 | `/api/ssl/apply_cert`, `/api/ssl/console_apply_cert`, `/api/ssl/get_cert_list`, `/api/domains/set_ssl`, `/api/domains/get_ssl`, `/.well-known/acme-challenge/*` | Mail host and console certificates: Let's Encrypt over HTTP-01 (challenges answered here; Go's own still reach Go), uploads, and installation in Postfix's and Dovecot's SNI. |
 | `/api/multi_ip_domain/apply`, `/api/multi_ip_domain/test` | Dedicated sending IPs: writes `docker-compose_addnetwork.yml` on the host and Postfix's transports (undone on failure), and checks a domain's address and SPF records for its IP. |
+| `/api/domain_blocklist/check`, `/api/domain_blocklist/logs` | Checks a mail host on 139 DNS blocklists in the background and serves the check's log. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
@@ -432,6 +434,16 @@ These are security fixes that keep the frontend working unchanged:
   dedicated IP's transport is really deleted (Go looked for `domain`, but
   `bm.sh` stores `@domain`), and applying with none left removes the old
   transports from `master.cf`.
+- **Blocklist checks:** lists are queried 16 at a time through the
+  system resolver, and "no record" is a definite answer; Go asked Google's
+  resolver one list after another, retrying and sleeping on every clean
+  list. Spamhaus refuses public resolvers with `127.255.255.x`, which Go
+  counted as passed, so a Spamhaus listing never showed: it counts as
+  invalid now (run the core with a local resolver to get answers). The
+  duplicate lists and the domain lists (SURBL, URIBL, which never list an
+  address) are gone. The log route serves check logs only; Go returned any
+  file named in the request, `.env` included. The daily scan remembers its
+  last run, so restarts neither skip nor repeat it.
 - **rspamd interface:** Go accepted any token it had kept in its server
   session, which only held one after the browser's last call to a route Go
   served (so the interface stopped working as routes moved here) and kept
@@ -453,5 +465,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains/DNS/DKIM with ACME and multi-IP (together: domain changes drive both); AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations
