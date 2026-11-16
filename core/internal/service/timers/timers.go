@@ -3,7 +3,6 @@ package timers
 import (
 	"billionmail-core/internal/service/abnormal_recipient"
 	"billionmail-core/internal/service/batch_mail"
-	"billionmail-core/internal/service/collect"
 	"billionmail-core/internal/service/domains"
 	"billionmail-core/internal/service/fail2ban"
 	"billionmail-core/internal/service/log_maintenance"
@@ -86,14 +85,6 @@ func Start(ctx context.Context) (err error) {
 
 	g.Log().Debug(ctx, "Start timers complete")
 
-	// Collect mail-sent total and mail-relay total
-	gtimer.AddOnce(5*time.Second, func() {
-		collect.Collect(ctx)
-	})
-	gtimer.Add(2*time.Hour, func() {
-		collect.Collect(ctx)
-	})
-
 	// Fix Postfix main configuration and Rspamd DKIM signing config
 	gtimer.AddOnce(5*time.Second, func() {
 		if !OwnedByRust("mail_services") {
@@ -157,7 +148,9 @@ func Start(ctx context.Context) (err error) {
 	}
 
 	// fail2ban access logs detection
-	gtimer.AddOnce(800*time.Millisecond, fail2ban.NewAccessLogDetection().Start)
+	if !OwnedByRust("log_maintenance") {
+		gtimer.AddOnce(800*time.Millisecond, fail2ban.NewAccessLogDetection().Start)
+	}
 
 	if !OwnedByRust("abnormal_recipient") {
 		gtimer.Add(30*time.Minute, func() {
@@ -228,9 +221,11 @@ func Start(ctx context.Context) (err error) {
 		})
 	}
 
-	gtimer.Add(24*time.Hour, func() {
-		log_maintenance.CompressAndCleanupLogs(ctx)
-	})
+	if !OwnedByRust("log_maintenance") {
+		gtimer.Add(24*time.Hour, func() {
+			log_maintenance.CompressAndCleanupLogs(ctx)
+		})
+	}
 
 	g.Log().Debug(ctx, "All timers started successfully")
 	return nil

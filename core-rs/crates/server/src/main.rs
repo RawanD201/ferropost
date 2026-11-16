@@ -17,6 +17,7 @@ use ferropost_store::Store;
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(15);
 
@@ -26,11 +27,14 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("ferropost: {err:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let _log_file = init_logging(&config);
 
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -39,7 +43,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(run()) {
+    match runtime.block_on(run(config)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             tracing::error!(error = %format!("{err:#}"), "fatal");
@@ -48,11 +52,46 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run() -> Result<()> {
+/// Logs to standard output and to `logs/core/out/<date>.log`, which the
+/// console's output log page reads (Go's logger wrote there).
+fn init_logging(config: &Config) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    let filter = || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let dir = config.root.join("../logs/core/out");
+    let appender = std::fs::create_dir_all(&dir).ok().and_then(|()| {
+        tracing_appender::rolling::RollingFileAppender::builder()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_suffix("log")
+            .build(&dir)
+            .ok()
+    });
+    let stdout = tracing_subscriber::fmt::layer().with_filter(filter());
+    match appender {
+        Some(appender) => {
+            let (writer, guard) = tracing_appender::non_blocking(appender);
+            let file = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(writer)
+                .with_filter(filter());
+            tracing_subscriber::registry()
+                .with(stdout)
+                .with(file)
+                .init();
+            Some(guard)
+        }
+        None => {
+            tracing_subscriber::registry().with(stdout).init();
+            tracing::warn!(dir = %dir.display(), "output log folder not writable; logging to stdout only");
+            None
+        }
+    }
+}
+
+async fn run(config: Config) -> Result<()> {
     // Several dependencies enable rustls; pick the provider explicitly.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let config = Config::load()?;
     tracing::info!(
         root = %config.root.display(),
         env_file = %config.env.path().display(),
@@ -69,6 +108,8 @@ async fn run() -> Result<()> {
         store.pg.clone(),
     )?);
     let state = AppState::new(config.clone(), store.clone())?;
+    ferropost_api::bootstrap::before_serving(&state).await;
+    ferropost_api::bootstrap::soon(&state);
     let app = ferropost_api::app(state.clone());
 
     let http = listener::bind(config.http_port).await?;

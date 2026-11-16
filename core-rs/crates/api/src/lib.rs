@@ -15,6 +15,7 @@ pub mod auth;
 pub mod base_url;
 pub mod blocklist;
 pub mod body;
+pub mod bootstrap;
 pub mod campaigns;
 pub mod captcha;
 pub mod certs;

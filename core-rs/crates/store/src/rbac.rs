@@ -152,6 +152,55 @@ pub async fn set_login(
     Ok(())
 }
 
+/// The id of a role, made when missing.
+pub async fn ensure_role(pg: &PgPool, name: &str, description: &str) -> Result<i64> {
+    sqlx::query(
+        "INSERT INTO role (role_name, description, status) VALUES ($1, $2, 1)
+         ON CONFLICT (role_name) DO NOTHING",
+    )
+    .bind(name)
+    .bind(description)
+    .execute(pg)
+    .await?;
+    Ok(
+        sqlx::query_scalar("SELECT role_id::bigint FROM role WHERE role_name = $1")
+            .bind(name)
+            .fetch_one(pg)
+            .await?,
+    )
+}
+
+/// A new enabled account (Go's `Account().Create`); returns its id.
+pub async fn create_account(
+    pg: &PgPool,
+    username: &str,
+    password_hash: &str,
+    now: i32,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO account (username, password, email, status, create_time, update_time)
+         VALUES ($1, $2, '', 1, $3, $3) RETURNING account_id::bigint",
+    )
+    .bind(username)
+    .bind(password_hash)
+    .bind(now)
+    .fetch_one(pg)
+    .await?)
+}
+
+/// Gives an account a role (kept when it has it).
+pub async fn grant_role(pg: &PgPool, account_id: i64, role_id: i64) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO account_role (account_id, role_id) VALUES ($1, $2)
+         ON CONFLICT (account_id, role_id) DO NOTHING",
+    )
+    .bind(account_id as i32)
+    .bind(role_id as i32)
+    .execute(pg)
+    .await?;
+    Ok(())
+}
+
 /// An account's email address.
 pub async fn email_of(pg: &PgPool, account_id: i64) -> Result<Option<String>> {
     Ok(

@@ -10,10 +10,12 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+flate2.workspace = true
 ferropost-common.workspace = true
 ferropost-domain.workspace = true
 ferropost-store.workspace = true
 sqlx.workspace = true
+tar.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

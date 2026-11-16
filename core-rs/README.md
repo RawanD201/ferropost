@@ -53,6 +53,7 @@ everything. supervisord sets it for both programs.
 | `blacklist` | `CheckDomainsBlacklist` | Once a day (first pass ten minutes after start-up, then 24 hours after the last one, across restarts) checks every mail host's address on the DNS blocklists, three hours apart for up to eight domains as Go did, and mails the alert recipients about a listing. Honours the automatic-scan switch. |
 | `domains` | `FreshRecords`, `RepairDKIMSigningConfig`, `FixRspamdDKIMSigningConfig` | At start-up makes missing DKIM keys, rewrites rspamd's `dkim_signing.conf` only if it changed (Go rewrote it and restarted rspamd at every start) and makes existing private keys readable by rspamd only. Every 5 minutes checks every domain's DNS records (cached for the domain list) and makes keys that went missing. Go keeps `UpdateBaseURL`, which only fills Go's own memory for the routes it still serves. |
 | `askai` | `AutoGetProjectInfo` | Reads the brand site of every AskAI project not read yet, every 10 minutes (a new project is read at once; Go polled every 5 seconds and retried a failing site forever). |
+| `log_maintenance` | `CompressAndCleanupLogs`, the fail2ban access-log watcher | Ten minutes after start-up and then daily, gzips the core's logs from before today, keeps the newest thirty of each kind and packs operation-log days older than a month into `.tar.gz` (Go waited a day first). fail2ban is told about each new day's access log as `ferropost` creates it, whichever process owns this job. |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
 
 ## Ported so far
@@ -483,6 +484,17 @@ These are security fixes that keep the frontend working unchanged:
   before they become folder names (Go's `../` reached, and removing a chat
   deleted, any folder); a provider error is shown in the chat, and a
   failed answer is not kept in the history.
+- **Start-up:** `ferropost` applies the schema migrations, syncs the
+  administrator's login from `ADMIN_USERNAME`/`ADMIN_PASSWORD` (what
+  `bm.sh change-password` relies on; the password is hashed again only
+  when it changed, where Go rewrote it at every start), issues the first
+  API token, writes rspamd's controller password and makes a self-signed
+  console certificate when there is none (its key owner-only; Go: 0777).
+  It logs to `logs/core/out/<date>.log` as well as standard output, so the
+  console's output log page keeps working without Go.
+- **No reporting to aaPanel:** Go posted the number of mails sent and
+  relays added to `aapanel.com` every two hours (`collect`). That code is
+  removed.
 - **Video outreach is gone** (`/api/video_outreach/*`, `/landing/video`
   and its job, in Go and in the console). It needed ffmpeg, Node
   Playwright and Anthropic, Cartesia, SyncLabs and Cloudflare R2 keys that
@@ -550,4 +562,4 @@ These are security fixes that keep the frontend working unchanged:
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
 5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted (done)
-6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files; static files, Roundcube and the API docs; the image without Go
+6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files, Roundcube and the API docs; the image without Go

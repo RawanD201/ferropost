@@ -126,6 +126,31 @@ fn quoted(value: &str) -> String {
         .collect()
 }
 
+/// fail2ban watches the day's log only once told to (Go restarted it when
+/// the file appeared; the container's cron does so twice a day only).
+fn reload_fail2ban() {
+    const SCRIPT: &str = "/restart_fail2ban.sh";
+    if !std::path::Path::new(SCRIPT).exists() {
+        return;
+    }
+    tokio::spawn(async {
+        match tokio::process::Command::new("bash")
+            .arg(SCRIPT)
+            .output()
+            .await
+        {
+            Ok(out) if out.status.success() => {
+                tracing::debug!("fail2ban reloaded for the new access log")
+            }
+            Ok(out) => tracing::warn!(
+                stderr = %String::from_utf8_lossy(&out.stderr),
+                "fail2ban reload failed"
+            ),
+            Err(err) => tracing::warn!(%err, "fail2ban reload failed"),
+        }
+    });
+}
+
 async fn write_lines(dir: PathBuf, mut rx: mpsc::Receiver<Line>) {
     if let Err(err) = tokio::fs::create_dir_all(&dir).await {
         tracing::warn!(dir = %dir.display(), %err, "cannot create access log directory");
@@ -138,13 +163,19 @@ async fn write_lines(dir: PathBuf, mut rx: mpsc::Receiver<Line>) {
             .is_none_or(|(date, _)| *date != line.file_date)
         {
             let path = dir.join(format!("access-{}.log", line.file_date));
+            let new_file = !path.exists();
             current = match tokio::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&path)
                 .await
             {
-                Ok(file) => Some((line.file_date.clone(), file)),
+                Ok(file) => {
+                    if new_file {
+                        reload_fail2ban();
+                    }
+                    Some((line.file_date.clone(), file))
+                }
                 Err(err) => {
                     tracing::warn!(path = %path.display(), %err, "cannot open access log");
                     None

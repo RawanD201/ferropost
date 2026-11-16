@@ -4,6 +4,7 @@
 //! variable and skips it, so each job has exactly one owner.
 
 pub mod abnormal;
+pub mod log_maintenance;
 pub mod maillog;
 pub mod warmup;
 
@@ -46,8 +47,18 @@ pub fn spawn(
         tracing::info!("bounce statistics job started");
     }
     if config.runs_job(WARMUP) {
-        tasks.push(tokio::spawn(warmup::run(store.pg.clone(), shutdown)));
+        tasks.push(tokio::spawn(warmup::run(
+            store.pg.clone(),
+            shutdown.clone(),
+        )));
         tracing::info!("warmup job started");
+    }
+    if config.runs_job(log_maintenance::JOB) {
+        tasks.push(tokio::spawn(log_maintenance::run(
+            config.root.join("../logs/core"),
+            shutdown,
+        )));
+        tracing::info!("log housekeeping job started");
     }
     tasks
 }
