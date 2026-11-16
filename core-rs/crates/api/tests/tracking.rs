@@ -29,7 +29,8 @@ async fn tracking_links() {
     let app = h.app(&[]);
     for sql in [
         "INSERT INTO mailstat_message_ids (postfix_message_id, message_id) VALUES ('PQ1', 'm1@mail.x.com')",
-        "INSERT INTO email_tasks (id, group_id) VALUES (12, 1)",
+        "INSERT INTO email_tasks (id, task_name, group_id, addresser, recipient_count, template_id)
+            VALUES (12, 'Promo', 1, 'news@x.com', 1, 0)",
         "INSERT INTO bm_contacts (id, email, group_id, last_active_at) VALUES
             (10, 'a@x.com', 1, 0), (11, 'a@x.com', 2, 0)",
     ] {

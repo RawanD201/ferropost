@@ -154,6 +154,16 @@ pub(crate) fn like_contains(input: &str) -> String {
     escaped
 }
 
+/// Brings the database schema up to date (`migrations/`; the first one is
+/// Go's start-up schema, so it also applies to databases Go created).
+pub async fn migrate(pg: &PgPool) -> Result<()> {
+    sqlx::migrate!("./migrations")
+        .run(pg)
+        .await
+        .context("apply database migrations")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::like_contains;

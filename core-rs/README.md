@@ -147,7 +147,17 @@ FERROPOST_TEST_REDIS_URL=redis://:test@127.0.0.1:56379/1 cargo test --tests
 
 Mail the tests trigger goes to an SMTP sink inside the test process (see
 `crates/api/tests/common`), so no mail server is needed and nothing leaves
-the machine.
+the machine. The tests build the schema from the store's migrations, the
+same ones the server applies.
+
+## Database schema
+
+`crates/store/migrations/` holds the schema; `ferropost` applies it at
+start-up (`ferropost_store::migrate`). The first migration is the schema
+Go created at every start (`core/internal/service/database_initialization`),
+written to apply to a new database and to one Go already made, including
+Go's move of pre-`bm_relay_config` relays. Later changes go in new files:
+an applied migration must never change.
 
 ## Build and deploy
 
@@ -540,4 +550,4 @@ These are security fixes that keep the frontend working unchanged:
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
 5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted (done)
-6. Switch off Go; move schema ownership to sqlx migrations
+6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files; static files, Roundcube and the API docs; the image without Go

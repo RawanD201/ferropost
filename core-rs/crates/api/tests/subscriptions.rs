@@ -144,7 +144,8 @@ async fn subscribe_and_unsubscribe_flows() {
         "INSERT INTO bm_options (name, value) VALUES
             ('reverse_proxy_domain', 'https://news.example.test/'),
             ('ferropost_token_secret', 'test-secret'), ('unsubscribe_jwt_secret', 'go-secret')",
-        "INSERT INTO email_tasks (id, group_id, addresser) VALUES (7, 2, 'news@example.test')",
+        "INSERT INTO email_tasks (id, task_name, group_id, addresser, recipient_count, template_id)
+            VALUES (7, 'News', 2, 'news@example.test', 1, 0)",
         "INSERT INTO recipient_info (task_id, recipient, message_id) VALUES (7, 'old@x.test', 'm1')",
     ] {
         sqlx::query(sql).execute(pg).await.expect(sql);

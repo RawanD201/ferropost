@@ -63,6 +63,7 @@ async fn run() -> Result<()> {
     );
 
     let store = Store::connect(&config).await?;
+    ferropost_store::migrate(&store.pg).await?;
     let certs = Arc::new(tls::CertStore::new(
         config.ssl_dir.clone(),
         store.pg.clone(),
