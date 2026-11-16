@@ -30,7 +30,7 @@ core-rs/                # Rust core replacing core/ domain by domain (see core-r
 ├── crates/domain/      # Pure types and rules, no IO
 ├── crates/common/      # Config, shared .env reader, i18n
 ├── crates/store/       # Postgres (sqlx) + Redis (fred) queries on the Go schema
-├── crates/api/         # axum: edge policies, auth/RBAC, native routes, proxy to Go
+├── crates/api/         # axum: edge policies, auth/RBAC, native routes, proxy to Go, campaign sender
 ├── crates/jobs/        # Background jobs moved from Go (FERROPOST_RUST_JOBS)
 └── crates/server/      # ferropost binary: listeners, TLS/SNI
 conf/                   # Mail service configs (postfix, dovecot, rspamd, redis)

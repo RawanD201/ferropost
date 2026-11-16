@@ -5,6 +5,7 @@
 //! database during the migration.
 
 pub mod audit;
+pub mod campaigns;
 pub mod contacts;
 pub mod domains;
 pub mod groups;
@@ -27,9 +28,10 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use ferropost_common::Config;
 use fred::prelude::{Builder, ClientLike, Config as RedisClientConfig, Server, ServerConfig};
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 pub use fred::prelude::Client as RedisClient;
+pub use sqlx::PgPool;
 
 const CONNECT_ATTEMPTS: u32 = 10;
 const RETRY_DELAY: Duration = Duration::from_secs(5);

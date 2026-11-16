@@ -778,6 +778,7 @@ dependencies = [
  "md-5 0.10.6",
  "moka",
  "pwhash",
+ "rand 0.8.8",
  "reqwest",
  "rust_xlsxwriter",
  "serde",

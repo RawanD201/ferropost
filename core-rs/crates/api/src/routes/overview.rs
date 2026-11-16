@@ -23,19 +23,19 @@ pub fn routes() -> Router<AppState> {
 }
 
 #[derive(Debug, Deserialize)]
-struct OverviewQuery {
+pub(crate) struct OverviewQuery {
     #[serde(default, deserialize_with = "opt_i64")]
-    campaign_id: Option<i64>,
+    pub(crate) campaign_id: Option<i64>,
     #[serde(default, deserialize_with = "opt_string")]
-    domain: Option<String>,
+    pub(crate) domain: Option<String>,
     #[serde(default, deserialize_with = "opt_i64")]
-    start_time: Option<i64>,
+    pub(crate) start_time: Option<i64>,
     #[serde(default, deserialize_with = "opt_i64")]
-    end_time: Option<i64>,
+    pub(crate) end_time: Option<i64>,
 }
 
 /// Validates the query like Go and turns it into a scope of at most a year.
-fn scope(q: OverviewQuery) -> Result<Scope, ApiError> {
+pub(crate) fn scope(q: OverviewQuery) -> Result<Scope, ApiError> {
     let start = q
         .start_time
         .ok_or_else(|| ApiError::Validation("The start_time field is required".to_owned()))?;
@@ -70,7 +70,7 @@ fn scope(q: OverviewQuery) -> Result<Scope, ApiError> {
 }
 
 #[derive(Serialize)]
-struct Overview {
+pub(crate) struct Overview {
     dashboard: Dashboard,
     mail_providers: Vec<ProviderRow>,
     #[serde(flatten)]
@@ -82,16 +82,21 @@ async fn overview(
     Lang(lang): Lang,
     ApiQuery(q): ApiQuery<OverviewQuery>,
 ) -> Result<ApiResponse<Overview>, ApiError> {
-    let scope = scope(q)?;
+    let data = build(&state, &scope(q)?).await?;
+    Ok(ApiResponse::ok(state.i18n.tr(&lang, "Success", &[]), data))
+}
+
+/// The dashboard for a scope (also `task/stat_chart` for one campaign).
+pub(crate) async fn build(state: &AppState, scope: &Scope) -> Result<Overview, ApiError> {
     let pg = &state.store.pg;
     let bucket = Bucket::for_window(scope.start, scope.end);
     let tz = ferropost_store::overview::chart_timezone(pg, &state.config.timezone).await?;
 
     // Go ran each tile and chart as its own query; three cover all of it.
     let (totals, providers, series) = tokio::try_join!(
-        ferropost_store::overview::totals(pg, &scope),
-        ferropost_store::overview::by_provider(pg, &scope),
-        ferropost_store::overview::series(pg, &scope, bucket, &tz),
+        ferropost_store::overview::totals(pg, scope),
+        ferropost_store::overview::by_provider(pg, scope),
+        ferropost_store::overview::series(pg, scope, bucket, &tz),
     )?;
 
     let container = state.config.postfix_container.clone();
@@ -120,7 +125,7 @@ async fn overview(
             .collect(),
         charts: charts(bucket, &series, totals),
     };
-    Ok(ApiResponse::ok(state.i18n.tr(&lang, "Success", &[]), data))
+    Ok(data)
 }
 
 /// Deliveries in the window that did not succeed, newest first.

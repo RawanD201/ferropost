@@ -3,6 +3,7 @@
 //! To port a domain: add a module, register its routes in [`router`] under
 //! the same paths and methods Go uses, and verify the JSON matches.
 
+mod campaigns;
 mod contact_groups;
 mod contacts;
 mod email_template;
@@ -28,13 +29,19 @@ pub(crate) fn now() -> i32 {
 
 pub fn router(state: AppState) -> Router<AppState> {
     // Route layers run outermost-last: auth, then RBAC, then the handler.
-    let authenticated = Router::new()
+    let mut authenticated = Router::new()
         .merge(tags::routes())
         .merge(operation_log::routes())
         .merge(email_template::routes())
         .merge(contact_groups::routes())
         .merge(contacts::routes())
-        .merge(overview::routes())
+        .merge(overview::routes());
+    // Campaign routes act on the sender, so they are native only where it
+    // runs; otherwise Go serves them next to its own sender.
+    if state.config.runs_job(crate::campaigns::JOB) {
+        authenticated = authenticated.merge(campaigns::routes());
+    }
+    let authenticated = authenticated
         // Pasted address lists can be large; Go allowed up to 800 MB.
         .route_layer(DefaultBodyLimit::max(BODY_LIMIT))
         .route_layer(from_fn_with_state(state.clone(), rbac::require_permission))

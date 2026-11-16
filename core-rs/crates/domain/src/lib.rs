@@ -4,6 +4,7 @@
 //! without a database, network or filesystem.
 
 pub mod audit;
+pub mod campaigns;
 pub mod contacts;
 pub mod groups;
 pub mod mail;

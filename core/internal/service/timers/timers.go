@@ -100,15 +100,17 @@ func Start(ctx context.Context) (err error) {
 	})
 
 	// ========== Mail task processing: one executor per task ==========
-	gtimer.Add(5*time.Second, func() {
-		batch_mail.ProcessEmailTasks(ctx)
-	})
+	if !OwnedByRust("campaigns") {
+		gtimer.Add(5*time.Second, func() {
+			batch_mail.ProcessEmailTasks(ctx)
+		})
 
-	// Idle actuators are cleaned every 10 minutes
-	gtimer.Add(10*time.Minute, func() {
-		batch_mail.CleanupIdleExecutors()
-		g.Log().Debug(ctx, "Idle task executors cleanup completed")
-	})
+		// Idle actuators are cleaned every 10 minutes
+		gtimer.Add(10*time.Minute, func() {
+			batch_mail.CleanupIdleExecutors()
+			g.Log().Debug(ctx, "Idle task executors cleanup completed")
+		})
+	}
 
 	// Test the smtp relay configuration connection status
 	gtimer.AddOnce(5*time.Second, func() {
@@ -151,9 +153,11 @@ func Start(ctx context.Context) (err error) {
 	})
 
 	// Regularly update the success and failure data of marketing tasks
-	gtimer.Add(1*time.Minute, func() {
-		batch_mail.UpdateTaskJoinMailstat(ctx)
-	})
+	if !OwnedByRust("campaigns") {
+		gtimer.Add(1*time.Minute, func() {
+			batch_mail.UpdateTaskJoinMailstat(ctx)
+		})
+	}
 
 	// First sync of SMTP relay configurations to Postfix after refactoring
 	gtimer.AddOnce(3*time.Second, func() {

@@ -51,9 +51,15 @@ impl<'a> Tracker<'a> {
     /// `mailto:` and other links are left as they are (as in Go, which
     /// required a scheme and a host).
     pub fn track_links(&self, html: &str) -> String {
+        self.track_links_except(html, &[])
+    }
+
+    /// Like [`Tracker::track_links`], leaving links that start with one of
+    /// `untracked` as they are.
+    pub fn track_links_except(&self, html: &str, untracked: &[&str]) -> String {
         HREF.replace_all(html, |caps: &regex::Captures| {
             let target = &caps[1];
-            if is_absolute_web_url(target) {
+            if is_absolute_web_url(target) && !untracked.iter().any(|p| target.starts_with(p)) {
                 format!(r#"href="{}""#, self.url(EventKind::Click, target))
             } else {
                 caps[0].to_owned()
@@ -115,6 +121,14 @@ mod tests {
             "one click link, one pixel"
         );
         assert!(out.contains(r#"href="mailto:hi@x.com""#) && out.contains(r#"href="/relative""#));
+        let kept = tracker.track_links_except(
+            r#"<a href="https://m.x/unsubscribe.html?jwt=J">u</a>"#,
+            &["https://m.x/unsubscribe"],
+        );
+        assert_eq!(
+            kept,
+            r#"<a href="https://m.x/unsubscribe.html?jwt=J">u</a>"#
+        );
         assert!(out.contains(r#"style="display:none" alt="" /></body>"#));
 
         let token = out

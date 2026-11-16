@@ -47,24 +47,7 @@ pub async fn send(state: &AppState, mail: SystemMail) -> Result<()> {
         .await?
         .unwrap_or((serde_json::json!({}), 0, 0));
     let data = RenderData {
-        subscriber: Some(Subscriber {
-            email: mail.to.clone(),
-            active: active.into(),
-            status: status.into(),
-            attribs: attribs
-                .as_object()
-                .map(|o| {
-                    o.iter()
-                        .map(|(k, v)| {
-                            (
-                                k.clone(),
-                                v.as_str().map_or_else(|| v.to_string(), str::to_owned),
-                            )
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-        }),
+        subscriber: Some(Subscriber::from_contact(&mail.to, &attribs, active, status)),
         ..RenderData::default()
     };
 

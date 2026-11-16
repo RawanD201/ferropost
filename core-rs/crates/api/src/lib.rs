@@ -11,6 +11,7 @@ pub mod audit;
 pub mod auth;
 pub mod base_url;
 pub mod body;
+pub mod campaigns;
 pub mod conn;
 pub mod de;
 pub mod edge;

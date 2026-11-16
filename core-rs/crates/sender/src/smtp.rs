@@ -13,6 +13,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use lettre::message::header::{HeaderName, HeaderValue};
 use lettre::message::{Mailbox, MultiPart};
+use lettre::transport::smtp::PoolConfig;
 use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
@@ -199,6 +200,12 @@ pub struct Mailer {
 
 impl Mailer {
     pub fn new(config: &SmtpConfig) -> Result<Self> {
+        Self::with_connections(config, 2)
+    }
+
+    /// A mailer keeping up to `connections` sessions open, for concurrent
+    /// sending (Go opened a new session for every message).
+    pub fn with_connections(config: &SmtpConfig, connections: u32) -> Result<Self> {
         // The internal host name never matches Postfix's certificate; TLS
         // here protects the password on the Docker network only.
         let tls = TlsParameters::builder(config.host.clone())
@@ -214,6 +221,7 @@ impl Mailer {
             ))
             .authentication(vec![Mechanism::Plain, Mechanism::Login])
             .timeout(Some(Duration::from_secs(60)))
+            .pool_config(PoolConfig::new().max_size(connections.max(1)))
             .build();
         Ok(Self { transport })
     }

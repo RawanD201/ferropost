@@ -11,7 +11,11 @@ use ferropost_domain::warmup::{
     self, DAY, DEFAULT_PERIOD_DAYS, INITIAL_IP_SCORE, INITIAL_PROVIDER_SCORE, IpWarmup,
     ProviderWarmup, SendStats,
 };
+use fred::prelude::{KeysInterface, LuaInterface};
+use fred::types::Expiration;
 use sqlx::PgPool;
+
+use crate::RedisClient;
 
 const IP_COLUMNS: &str = "id, sender_ip, period, score, last_evaluate_time, progress, re_warmups,
     begin_time, end_time, COALESCE(create_time, 0) AS create_time,
@@ -268,4 +272,116 @@ pub async fn limits(pg: &PgPool, ip: &str, provider: &str, now: i64) -> Result<(
     let base = warmup::base_limits(i64::from(rec.begin_time), now);
     let group = provider_or_init(pg, ip, provider, now).await?;
     Ok(warmup::adjusted_limits(base, group.score))
+}
+
+/// Go's hourly token bucket, kept identical so Go and Rust share the
+/// counters while campaigns move over.
+const TOKEN_BUCKET: &str = r#"
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local rate = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+local requested = tonumber(ARGV[4])
+
+local bucket_info = redis.call('HGETALL', key)
+local last_tokens = capacity
+local last_refill_time = now
+
+if #bucket_info > 0 then
+    for i = 1, #bucket_info, 2 do
+        if bucket_info[i] == 'tokens' then
+            last_tokens = tonumber(bucket_info[i+1])
+        elseif bucket_info[i] == 'last_refill_time' then
+            last_refill_time = tonumber(bucket_info[i+1])
+        end
+    end
+end
+
+local time_passed = now - last_refill_time
+local new_tokens = time_passed * rate
+
+local current_tokens = math.min(capacity, last_tokens + new_tokens)
+
+if current_tokens >= requested then
+    current_tokens = current_tokens - requested
+    redis.call('HSET', key, 'tokens', current_tokens, 'last_refill_time', now)
+    local expiry = 86400
+    if rate > 0 then
+        expiry = math.ceil(capacity / rate * 2)
+    end
+    redis.call('EXPIRE', key, expiry)
+    return 1
+else
+    return 0
+end
+"#;
+
+/// Whether a warmup campaign may send to a provider group now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    Allow,
+    /// Retry after about this many seconds.
+    Wait(i64),
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedLimits {
+    d: i64,
+    h: i64,
+}
+
+/// One send from `ip` to `provider` against its warmup limits (Go:
+/// `RateLimiter().Allow`): a 24-hour counter for the daily limit and a
+/// token bucket for the hourly one, under Go's Redis keys.
+pub async fn admit(
+    pg: &PgPool,
+    redis: &RedisClient,
+    ip: &str,
+    provider: &str,
+    now: i64,
+) -> Result<Admission> {
+    let limits_key = format!("warmup:limits:{ip}:{provider}");
+    let cached: Option<String> = redis.get(&limits_key).await?;
+    let (daily, hourly) = match cached.and_then(|c| serde_json::from_str::<CachedLimits>(&c).ok()) {
+        Some(c) => (c.d, c.h),
+        None => {
+            let (d, h) = limits(pg, ip, provider, now).await?;
+            let json = serde_json::to_string(&CachedLimits { d, h })?;
+            let _: () = redis
+                .set(&limits_key, json, Some(Expiration::EX(300)), None, false)
+                .await?;
+            (d, h)
+        }
+    };
+    if daily <= 0 || hourly <= 0 {
+        return Ok(Admission::Wait(300));
+    }
+
+    let daily_key = format!("warmup:vw:d:{ip}:{provider}");
+    let sent_today: i64 = redis.incr(&daily_key).await?;
+    if sent_today == 1 {
+        let _: () = redis.expire(&daily_key, DAY, None).await?;
+    }
+    if sent_today > daily {
+        return Ok(Admission::Wait(300));
+    }
+
+    let rate = hourly as f64 / 3600.0;
+    let allowed: i64 = redis
+        .eval(
+            TOKEN_BUCKET,
+            vec![format!("warmup:tb:h:{ip}:{provider}")],
+            vec![
+                hourly.to_string(),
+                rate.to_string(),
+                now.to_string(),
+                "1".to_owned(),
+            ],
+        )
+        .await?;
+    if allowed != 1 {
+        let _: i64 = redis.decr(&daily_key).await?;
+        return Ok(Admission::Wait((1.0 / rate) as i64 + 1));
+    }
+    Ok(Admission::Allow)
 }

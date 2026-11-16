@@ -30,6 +30,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/unsubscribe", post(unsubscribe))
         .route("/api/unsubscribe/user_group", post(user_groups))
         .route("/api/unsubscribe_new", post(unsubscribe_one))
+        .route(
+            "/api/unsubscribe/one_click",
+            get(one_click_page).post(one_click),
+        )
         .route("/api/subscribe/submit", post(subscribe))
         .route("/api/subscribe/confirm", get(confirm))
 }
@@ -233,6 +237,58 @@ async fn unsubscribe_one(
             redirect_url: group.unsubscribe_redirect_url,
         },
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct OneClickQuery {
+    #[serde(default)]
+    jwt: Option<String>,
+}
+
+/// RFC 8058 one-click unsubscribe: mailbox providers POST here (body
+/// `List-Unsubscribe=One-Click`, ignored) from a campaign's
+/// `List-Unsubscribe` header. Unsubscribes from the campaign's group.
+async fn one_click(
+    State(state): State<AppState>,
+    Lang(lang): Lang,
+    Query(q): Query<OneClickQuery>,
+) -> Result<ApiResponse<()>, ApiError> {
+    let invalid = || ApiError::Rejected(state.i18n.tr(&lang, "Invalid token", &[]));
+    let jwt = q
+        .jwt
+        .as_deref()
+        .filter(|j| !j.is_empty())
+        .ok_or_else(invalid)?;
+    let claims = unsubscribe_claims(&state, &lang, jwt).await?;
+    let group_id = i32::try_from(claims.group_id)
+        .ok()
+        .filter(|g| *g > 0)
+        .ok_or_else(|| {
+            ApiError::Rejected(state.i18n.tr(&lang, "Invalid group information", &[]))
+        })?;
+    ferropost_store::subscriptions::unsubscribe(
+        &state.store.pg,
+        &claims.email,
+        &[group_id],
+        claims.template_id,
+        claims.task_id,
+        now(),
+    )
+    .await?;
+    Ok(ApiResponse::ok(state.i18n.tr(&lang, UNSUBSCRIBED, &[]), ()))
+}
+
+/// The header link opened in a browser: RFC 8058 forbids unsubscribing on a
+/// GET, so show the usual page, which asks first.
+async fn one_click_page(Query(q): Query<OneClickQuery>) -> Response {
+    match q.jwt.filter(|j| {
+        !j.is_empty()
+            && j.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+    }) {
+        Some(jwt) => redirect(&format!("/unsubscribe_new.html?jwt={jwt}")),
+        None => invalid_page(),
+    }
 }
 
 fn non_empty(s: &str) -> Option<String> {

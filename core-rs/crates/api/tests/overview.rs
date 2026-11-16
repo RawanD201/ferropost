@@ -38,7 +38,8 @@ async fn overview_dashboard() {
         "INSERT INTO mailstat_opened (postfix_message_id) VALUES ('P1'), ('P1')".to_owned(),
         "INSERT INTO mailstat_clicked (postfix_message_id) VALUES ('P1')".to_owned(),
         "INSERT INTO mailstat_message_ids (postfix_message_id, message_id) VALUES ('P1', 'm1')".to_owned(),
-        "INSERT INTO recipient_info (task_id, recipient, message_id) VALUES (7, 'a@gmail.com', 'm1'), (7, 'a@gmail.com', 'm1')"
+        // Two recipient rows on one message (Go's join counted it twice).
+        "INSERT INTO recipient_info (task_id, recipient, message_id) VALUES (7, 'a@gmail.com', 'm1'), (7, 'b@gmail.com', 'm1')"
             .to_owned(),
         "INSERT INTO mailstat_deferred_mails (postfix_message_id, dsn, description) VALUES
             ('P3', '4.2.0', 'first'), ('P3', '4.4.1', 'latest')"

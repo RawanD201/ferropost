@@ -22,6 +22,36 @@ pub struct Subscriber {
     pub attribs: BTreeMap<String, String>,
 }
 
+impl Subscriber {
+    /// From a contact row: attribute values become text, as Go's
+    /// `map[string]string` contact attributes did.
+    pub fn from_contact(
+        email: &str,
+        attribs: &serde_json::Value,
+        active: i32,
+        status: i32,
+    ) -> Self {
+        Self {
+            email: email.to_owned(),
+            active: active.into(),
+            status: status.into(),
+            attribs: attribs
+                .as_object()
+                .map(|o| {
+                    o.iter()
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                v.as_str().map_or_else(|| v.to_string(), str::to_owned),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+}
+
 /// Campaign fields exposed as `.Task.*` (Go's `entity.EmailTask`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TaskInfo {

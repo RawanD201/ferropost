@@ -80,15 +80,18 @@ impl Harness {
 
     /// A fresh app (fresh caches) with extra `.env` values.
     pub fn app(&self, env: &[(&str, &str)]) -> Router {
+        ferropost_api::app(self.state(env))
+    }
+
+    /// The state behind [`Harness::app`], for starting background work.
+    pub fn state(&self, env: &[(&str, &str)]) -> AppState {
         let db = std::env::var("FERROPOST_TEST_DATABASE_URL").expect("db url");
         let redis = std::env::var("FERROPOST_TEST_REDIS_URL").expect("redis url");
         let port = self.smtp.port.to_string();
         let mut extra = env.to_vec();
         extra.push(("FERROPOST_SMTP_PORT", &port));
         let config = config(&self.core_dir(), &self.upstream, &db, &redis, &extra);
-        let state = AppState::with_access_log(config, self.store.clone(), AccessLog::disabled())
-            .expect("state");
-        ferropost_api::app(state)
+        AppState::with_access_log(config, self.store.clone(), AccessLog::disabled()).expect("state")
     }
 }
 
@@ -299,7 +302,8 @@ pub async fn reset_schema(store: &Store) {
              bm_console_ip_whitelist, bm_operation_logs, email_templates, email_tasks,
              mailstat_message_ids, mailstat_opened, mailstat_clicked, mailstat_send_mails,
              mailstat_senders, mailstat_deferred_mails, recipient_info, unsubscribe_records,
-             domain, mailbox CASCADE",
+             domain, mailbox, abnormal_recipient, bm_campaign_warmup, bm_sender_ip_warmup,
+             bm_sender_ip_mail_provider CASCADE",
         // DDL copied from core/internal/service/database_initialization.
         "CREATE TABLE account (
             account_id SERIAL PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE,
@@ -367,8 +371,46 @@ pub async fn reset_schema(store: &Store) {
             update_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
             UNIQUE(temp_name))",
         // Only the columns Rust reads so far.
-        "CREATE TABLE email_tasks (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL DEFAULT 0,
-            addresser VARCHAR(320) NOT NULL DEFAULT '')",
+        // Go's DDL, with defaults on the NOT NULL columns so fixtures can
+        // stay short.
+        "CREATE TABLE email_tasks (
+            id SERIAL PRIMARY KEY, task_name VARCHAR(255) NOT NULL DEFAULT '',
+            addresser VARCHAR(320) NOT NULL DEFAULT '', subject TEXT, full_name VARCHAR(255),
+            remark TEXT, recipient_count INTEGER NOT NULL DEFAULT 0,
+            task_process SMALLINT NOT NULL DEFAULT 0, pause SMALLINT NOT NULL DEFAULT 0,
+            template_id INTEGER NOT NULL DEFAULT 0, is_record SMALLINT NOT NULL DEFAULT 0,
+            unsubscribe SMALLINT NOT NULL DEFAULT 0, threads INTEGER NOT NULL DEFAULT 0,
+            etypes VARCHAR(320) NOT NULL DEFAULT '1', track_open SMALLINT NOT NULL DEFAULT 1,
+            track_click SMALLINT NOT NULL DEFAULT 1, start_time INTEGER NOT NULL DEFAULT 0,
+            create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            update_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            active SMALLINT NOT NULL DEFAULT 0, add_type SMALLINT NOT NULL DEFAULT 0,
+            sends_count INTEGER NOT NULL DEFAULT 0, delivered_count INTEGER NOT NULL DEFAULT 0,
+            bounced_count INTEGER NOT NULL DEFAULT 0, deferred_count INTEGER NOT NULL DEFAULT 0,
+            group_id INTEGER NOT NULL DEFAULT 0, stats_update_time INTEGER NOT NULL DEFAULT 0,
+            tag_ids TEXT DEFAULT '', tag_logic VARCHAR(10) DEFAULT 'AND')",
+        "CREATE TABLE abnormal_recipient (
+            id SERIAL PRIMARY KEY, create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            recipient VARCHAR(320) NOT NULL, count INTEGER NOT NULL,
+            description VARCHAR(255) NOT NULL, add_type SMALLINT NOT NULL DEFAULT 0,
+            UNIQUE(recipient))",
+        "CREATE TABLE bm_campaign_warmup (id serial primary key,
+            task_id bigint not null default 0, warmup_id bigint not null default 0)",
+        "CREATE TABLE bm_sender_ip_warmup (
+            id serial primary key, sender_ip text not null default '',
+            period integer not null default 45, score integer not null default 40,
+            last_evaluate_time integer not null default 0, progress integer not null default 0,
+            re_warmups integer not null default 0,
+            begin_time integer not null DEFAULT EXTRACT(EPOCH FROM NOW()),
+            end_time integer not null default 0,
+            create_time integer DEFAULT EXTRACT(EPOCH FROM NOW()),
+            update_time integer DEFAULT EXTRACT(EPOCH FROM NOW()))",
+        "CREATE TABLE bm_sender_ip_mail_provider (
+            id serial primary key, sender_ip text not null default '',
+            mail_provider text not null default 'other', score integer not null default 40,
+            last_evaluate_time integer not null default 0,
+            create_time integer not null default EXTRACT(EPOCH FROM NOW()),
+            update_time integer not null default EXTRACT(EPOCH FROM NOW()))",
         "CREATE TABLE unsubscribe_records (
             id SERIAL PRIMARY KEY, email VARCHAR(320) NOT NULL, group_id INTEGER,
             template_id INTEGER, task_id INTEGER,
@@ -393,8 +435,13 @@ pub async fn reset_schema(store: &Store) {
             log_time_millis BIGINT NOT NULL DEFAULT 0,
             log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,
             message_id TEXT NOT NULL DEFAULT '')",
+        // Go's DDL without the foreign key, so tests can log mail for
+        // campaigns they do not create.
         "CREATE TABLE recipient_info (id SERIAL PRIMARY KEY, task_id INTEGER NOT NULL,
-            recipient VARCHAR(320) NOT NULL, message_id TEXT NOT NULL)",
+            recipient VARCHAR(320) NOT NULL, is_sent SMALLINT DEFAULT 0,
+            sent_time INTEGER NOT NULL DEFAULT 0, message_id TEXT NOT NULL DEFAULT '',
+            create_time INTEGER NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            UNIQUE(task_id, recipient))",
         "CREATE TABLE mailstat_send_mails (postfix_message_id TEXT PRIMARY KEY,
             log_time_millis BIGINT NOT NULL DEFAULT 0,
             log_time INTEGER GENERATED ALWAYS AS (log_time_millis / 1000) STORED,

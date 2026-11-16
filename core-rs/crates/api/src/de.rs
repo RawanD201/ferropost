@@ -29,7 +29,15 @@ impl<S: Send + Sync, T: DeserializeOwned> FromRequestParts<S> for ApiQuery<T> {
 #[serde(untagged)]
 enum IntOrString {
     Int(i64),
+    /// GoFrame truncated fractions (the console sends `Date.now() / 1000`).
+    Float(f64),
     Str(String),
+}
+
+impl IntOrString {
+    fn float(value: f64) -> Option<i64> {
+        (value.is_finite() && value.abs() < 9.0e18).then_some(value.trunc() as i64)
+    }
 }
 
 /// Optional integer given as a number or a string; empty means absent.
@@ -37,6 +45,9 @@ pub fn opt_i64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i64>
     match Option::<IntOrString>::deserialize(deserializer)? {
         None => Ok(None),
         Some(IntOrString::Int(value)) => Ok(Some(value)),
+        Some(IntOrString::Float(value)) => IntOrString::float(value)
+            .map(Some)
+            .ok_or_else(|| D::Error::custom(format!("invalid integer `{value}`"))),
         Some(IntOrString::Str(raw)) => {
             let raw = raw.trim();
             if raw.is_empty() {
@@ -75,10 +86,20 @@ pub fn i64_list<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<i64>, 
             .into_iter()
             .map(|item| match item {
                 IntOrString::Int(v) => Ok(v),
+                IntOrString::Float(v) => IntOrString::float(v)
+                    .ok_or_else(|| D::Error::custom(format!("invalid integer `{v}`"))),
                 IntOrString::Str(s) => parse(&s),
             })
             .collect(),
     }
+}
+
+/// Like [`i64_list`], but tells an absent field (`None`, with
+/// `#[serde(default)]`) from an empty list.
+pub fn some_i64_list<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<i64>>, D::Error> {
+    i64_list(deserializer).map(Some)
 }
 
 /// Optional boolean given as `true`/`false`, `1`/`0` or their strings.

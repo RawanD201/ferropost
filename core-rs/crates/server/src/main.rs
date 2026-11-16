@@ -67,7 +67,8 @@ async fn run() -> Result<()> {
         config.ssl_dir.clone(),
         store.pg.clone(),
     )?);
-    let app = ferropost_api::app(AppState::new(config.clone(), store.clone())?);
+    let state = AppState::new(config.clone(), store.clone())?;
+    let app = ferropost_api::app(state.clone());
 
     let http = listener::bind(config.http_port).await?;
     let https = listener::bind(config.https_port).await?;
@@ -75,7 +76,8 @@ async fn run() -> Result<()> {
 
     let graceful = Arc::new(GracefulShutdown::new());
     let (stop_tx, stop_rx) = watch::channel(false);
-    let jobs = ferropost_jobs::spawn(&config, &store, stop_rx.clone());
+    let mut jobs = ferropost_jobs::spawn(&config, &store, stop_rx.clone());
+    jobs.extend(ferropost_api::campaigns::spawn(&state, stop_rx.clone()));
     let watcher = {
         let graceful = graceful.clone();
         move || graceful.watcher()

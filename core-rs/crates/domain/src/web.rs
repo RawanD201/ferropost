@@ -47,6 +47,8 @@ pub const PUBLIC_EXACT_PATHS: &[&str] = &[
     "/api/aapanel/sso",
     "/api/unsubscribe/user_group",
     "/api/unsubscribe",
+    // RFC 8058 one-click target of the List-Unsubscribe header (Ferropost).
+    "/api/unsubscribe/one_click",
     "/api/unsubscribe_new",
     "/api/batch_mail/api/send",
     "/api/batch_mail/api/batch_send",

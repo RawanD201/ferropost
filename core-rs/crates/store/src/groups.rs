@@ -214,14 +214,11 @@ pub async fn active_contact_count(pg: &PgPool, group_ids: &[i32]) -> Result<i64>
     .await?)
 }
 
-/// Subscribed and confirmed contacts of a group matching a tag filter.
-pub async fn tag_contact_count(
-    pg: &PgPool,
-    group_id: i32,
-    tag_ids: &[i32],
-    logic: TagLogic,
-) -> Result<i64> {
-    let tag_filter = match logic {
+/// SQL condition on contact `c` for the tag IDs bound as `$2` (distinct),
+/// shared by the recipient preview and campaign creation so both count the
+/// same people.
+pub(crate) fn tag_filter_sql(logic: TagLogic) -> &'static str {
+    match logic {
         TagLogic::All => {
             "(SELECT COUNT(DISTINCT ct.tag_id) FROM bm_contact_tags ct
                WHERE ct.contact_id = c.id AND ct.tag_id = ANY($2)) = cardinality($2)"
@@ -232,7 +229,17 @@ pub async fn tag_contact_count(
         TagLogic::None => {
             "NOT EXISTS (SELECT 1 FROM bm_contact_tags ct WHERE ct.contact_id = c.id AND ct.tag_id = ANY($2))"
         }
-    };
+    }
+}
+
+/// Subscribed and confirmed contacts of a group matching a tag filter.
+pub async fn tag_contact_count(
+    pg: &PgPool,
+    group_id: i32,
+    tag_ids: &[i32],
+    logic: TagLogic,
+) -> Result<i64> {
+    let tag_filter = tag_filter_sql(logic);
     let sql = format!(
         "SELECT COUNT(*) FROM bm_contacts c
           WHERE c.group_id = $1 AND c.active = 1 AND c.status = 1 AND {tag_filter}"
