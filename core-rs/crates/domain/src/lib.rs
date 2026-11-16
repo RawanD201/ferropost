@@ -8,6 +8,7 @@ pub mod campaigns;
 pub mod contacts;
 pub mod groups;
 pub mod mail;
+pub mod mailboxes;
 pub mod maillog;
 pub mod overview;
 pub mod paging;

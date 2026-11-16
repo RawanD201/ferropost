@@ -113,6 +113,7 @@ pub fn config(
         ("FERROPOST_SERVER_IP", "198.51.100.1".to_owned()),
         // Never reach the Docker daemon of the machine running the tests.
         ("FERROPOST_POSTFIX_CONTAINER", "none".to_owned()),
+        ("FERROPOST_DOVECOT_CONTAINER", "none".to_owned()),
         // Mail goes to the harness's sink, or to a closed port: never to an
         // MTA that happens to listen on the test machine.
         ("FERROPOST_SMTP_HOST", "127.0.0.1".to_owned()),

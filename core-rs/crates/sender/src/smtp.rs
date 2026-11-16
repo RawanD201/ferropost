@@ -137,21 +137,29 @@ pub fn html_to_text(html: &str) -> String {
     out.join("\n").trim().to_owned()
 }
 
-/// Credentials for a new mailbox, stored the way Go stores them: a Dovecot
-/// MD5-CRYPT hash (`$1$...`) and the reversible hex-of-base64 copy.
+/// Credentials for a mailbox: a Dovecot hash and the reversible
+/// hex-of-base64 copy the core logs in with.
+///
+/// Go and Roundcube write MD5-CRYPT, Dovecot's configured default scheme,
+/// which is weak. New hashes are SHA512-CRYPT with Dovecot's `{SCHEME}`
+/// prefix, which overrides the default, so both kinds keep working side
+/// by side.
 pub fn mailbox_credentials(password: &str) -> Result<(String, String)> {
+    let hash = pwhash::sha512_crypt::hash(password).context("sha512-crypt")?;
+    Ok((
+        format!("{{SHA512-CRYPT}}{hash}"),
+        encode_mailbox_password(password),
+    ))
+}
+
+/// The reversible copy Go stores in `password_encode`.
+pub fn encode_mailbox_password(password: &str) -> String {
     use base64::Engine;
-    // Weak, but it is Dovecot's configured `default_pass_scheme` and what
-    // Go and Roundcube write; moving every mailbox to SHA512-CRYPT is part
-    // of the mailbox work (step 5).
-    #[allow(deprecated)]
-    let hash = pwhash::md5_crypt::hash(password).context("md5-crypt")?;
-    let encoded = base64::engine::general_purpose::STANDARD
+    base64::engine::general_purpose::STANDARD
         .encode(password)
         .bytes()
         .map(|b| format!("{b:02x}"))
-        .collect();
-    Ok((hash, encoded))
+        .collect()
 }
 
 /// A random 16-character password (Go: `grand.S(16)`).
@@ -301,8 +309,15 @@ mod tests {
         assert!(decode_mailbox_password("zz").is_err());
 
         let (hash, encoded) = mailbox_credentials("s3cret!").expect("credentials");
-        assert!(hash.starts_with("$1$"));
-        assert!(pwhash::md5_crypt::verify("s3cret!", &hash));
+        let crypt = hash.strip_prefix("{SHA512-CRYPT}").expect("scheme prefix");
+        assert!(crypt.starts_with("$6$"));
+        assert!(pwhash::sha512_crypt::verify("s3cret!", crypt));
+        // Same as `openssl passwd -6 -salt Ferropost1234567 's3cret!'`,
+        // i.e. glibc crypt(3), which Dovecot uses to verify it.
+        assert_eq!(
+            pwhash::sha512_crypt::hash_with("$6$Ferropost1234567", "s3cret!").expect("hash"),
+            "$6$Ferropost1234567$pYu9z8.F5mnJaUjMzI06v5bBVYvxfLOUFIQ9uWNWPB9VRC/D7G.PR80y0miNMfzlu5KjJ.6qZy6zO3wORXuYO/"
+        );
         assert_eq!(encoded, "637a4e6a636d563049513d3d");
         assert_eq!(
             decode_mailbox_password(&encoded).expect("roundtrip"),

@@ -7,6 +7,7 @@ mod campaigns;
 mod contact_groups;
 mod contacts;
 mod email_template;
+mod mailboxes;
 mod operation_log;
 mod overview;
 mod send_api;
@@ -37,6 +38,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(contact_groups::routes())
         .merge(contacts::routes())
         .merge(overview::routes())
+        .merge(mailboxes::routes())
         .merge(send_api::routes());
     // Campaign routes act on the sender, so they are native only where it
     // runs; otherwise Go serves them next to its own sender.

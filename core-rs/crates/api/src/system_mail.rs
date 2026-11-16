@@ -3,8 +3,6 @@
 //! `noreply@<default sender domain>`, whose mailbox is created on first use
 //! like Go did.
 
-use std::path::Path;
-
 use anyhow::{Context, Result, bail};
 use ferropost_sender::smtp::{Mailer, Outgoing, SmtpConfig};
 use ferropost_sender::template::{RenderData, Subscriber, render};
@@ -85,16 +83,15 @@ async fn noreply_password(state: &AppState, address: &str, domain: &str) -> Resu
     let (hash, encoded) = ferropost_sender::smtp::mailbox_credentials(&password)?;
     let created = ferropost_store::mailboxes::insert(
         pg,
-        &ferropost_store::mailboxes::NewMailbox {
-            username: address,
-            local_part: "noreply",
+        &ferropost_store::mailboxes::NewMailbox::basic(
+            address,
+            "noreply",
             domain,
-            full_name: "noreply",
-            password_hash: &hash,
-            password_encoded: &encoded,
-            quota: 5_242_880,
-            now: crate::routes::now(),
-        },
+            &hash,
+            &encoded,
+            5_242_880,
+            crate::routes::now(),
+        ),
     )
     .await?;
     if !created {
@@ -104,29 +101,10 @@ async fn noreply_password(state: &AppState, address: &str, domain: &str) -> Resu
             .context("noreply mailbox has no password")?;
         return ferropost_sender::smtp::decode_mailbox_password(&encoded);
     }
-    let maildir = state
-        .config
-        .root
-        .join("../vmail-data")
-        .join(domain)
-        .join("noreply");
-    if let Err(err) = prepare_maildir(&maildir) {
+    let maildir = crate::maildir::dir(state, domain, "noreply");
+    if let Err(err) = crate::maildir::ensure(&maildir, 0, false) {
         tracing::warn!(path = %maildir.display(), %err, "noreply maildir not prepared");
     }
     tracing::info!(%address, "noreply mailbox created");
     Ok(password)
-}
-
-/// Maildir and `maildirsize` owned by Dovecot (uid 150, gid 8), as Go set up.
-fn prepare_maildir(dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    let size = dir.join("maildirsize");
-    if !size.exists() {
-        std::fs::write(&size, "0S\n0 0\n")?;
-    }
-    for path in [dir, size.as_path()] {
-        // Only possible as root (the container); ignored in development.
-        let _ = std::os::unix::fs::chown(path, Some(150), Some(8));
-    }
-    Ok(())
 }

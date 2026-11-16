@@ -29,18 +29,20 @@ func Start(ctx context.Context) (err error) {
 	g.Log().Debug(ctx, "Starting timers...")
 
 	// Normalize mailboxes to lowercase
-	gtimer.AddOnce(500*time.Millisecond, func() {
-		g.Log().Debug(ctx, "Mailboxes normalization started")
+	if !OwnedByRust("mailboxes") {
+		gtimer.AddOnce(500*time.Millisecond, func() {
+			g.Log().Debug(ctx, "Mailboxes normalization started")
 
-		err = mail_boxes.NormalizeMailboxes()
+			err = mail_boxes.NormalizeMailboxes()
 
-		if err != nil {
-			g.Log().Warning(ctx, "NormalizeMailboxes failed: ", err)
-			err = nil // Ignore the error to allow the service to continue
-		} else {
-			g.Log().Debug(ctx, "Mailboxes normalized successfully")
-		}
-	})
+			if err != nil {
+				g.Log().Warning(ctx, "NormalizeMailboxes failed: ", err)
+				err = nil // Ignore the error to allow the service to continue
+			} else {
+				g.Log().Debug(ctx, "Mailboxes normalized successfully")
+			}
+		})
+	}
 
 	// Start DNS Records checking
 	// Ensure the DNS records are fresh on startup
@@ -171,32 +173,34 @@ func Start(ctx context.Context) (err error) {
 		multi_ip_domain.ReapplyAllIptablesRules(ctx)
 	})
 
-	// Updated: Used space in the mailbox
-	gtimer.AddOnce(20*time.Second, func() {
-		mail_boxes.UpdateMailboxesUsedSpace()
-	})
+	if !OwnedByRust("mailboxes") {
+		// Updated: Used space in the mailbox
+		gtimer.AddOnce(20*time.Second, func() {
+			mail_boxes.UpdateMailboxesUsedSpace()
+		})
 
-	gtimer.Add(60*time.Minute, func() {
-		mail_boxes.UpdateMailboxesUsedSpace()
-	})
+		gtimer.Add(60*time.Minute, func() {
+			mail_boxes.UpdateMailboxesUsedSpace()
+		})
 
-	// Check the email quota and the alert for exceeding the quota
-	gtimer.AddOnce(1*time.Minute, func() {
-		mail_boxes.CheckMailboxesQuotaAlerts(ctx)
-	})
+		// Check the email quota and the alert for exceeding the quota
+		gtimer.AddOnce(1*time.Minute, func() {
+			mail_boxes.CheckMailboxesQuotaAlerts(ctx)
+		})
 
-	gtimer.Add(60*time.Minute, func() {
-		mail_boxes.CheckMailboxesQuotaAlerts(ctx)
-	})
+		gtimer.Add(60*time.Minute, func() {
+			mail_boxes.CheckMailboxesQuotaAlerts(ctx)
+		})
 
-	// Initialize the quota plugin and update the quota usage status of the domain name and email
-	gtimer.AddOnce(1*time.Second, func() {
-		err := mail_boxes.InitQuotaPluginAndUpdateUsedSpace(ctx)
-		if err != nil {
-			g.Log().Warning(ctx, "Initialize the quota plugin and update the quota usage status of the domain name and email,  failed: ", err)
-			err = nil
-		}
-	})
+		// Initialize the quota plugin and update the quota usage status of the domain name and email
+		gtimer.AddOnce(1*time.Second, func() {
+			err := mail_boxes.InitQuotaPluginAndUpdateUsedSpace(ctx)
+			if err != nil {
+				g.Log().Warning(ctx, "Initialize the quota plugin and update the quota usage status of the domain name and email,  failed: ", err)
+				err = nil
+			}
+		})
+	}
 
 	gtimer.AddOnce(1*time.Minute, func() {
 		relay.EnsurePostfixConfExists(ctx)

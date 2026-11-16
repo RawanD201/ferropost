@@ -486,9 +486,11 @@ async fn subscribe_and_unsubscribe_flows() {
     .fetch_one(pg)
     .await
     .expect("noreply mailbox");
-    assert!(hash.starts_with("$1$"), "{hash}");
+    let crypt = hash
+        .strip_prefix("{SHA512-CRYPT}")
+        .unwrap_or_else(|| panic!("{hash}"));
     let password = ferropost_sender::smtp::decode_mailbox_password(&encoded).expect("decode");
-    assert!(pwhash::md5_crypt::verify(&password, &hash));
+    assert!(pwhash::sha512_crypt::verify(&password, crypt));
     assert_eq!(maildir, "noreply@example.test/");
     // Every message logged in as the mailbox, with its stored password.
     for mail in h.smtp.mails() {

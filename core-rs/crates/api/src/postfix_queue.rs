@@ -1,45 +1,11 @@
 //! Size of Postfix's deferred queue, read with `postqueue -j` inside the
 //! Postfix container through the Docker socket (as Go did).
 
-use std::time::Duration;
-
-use anyhow::{Context, Result};
-use bollard::Docker;
-use bollard::exec::{CreateExecOptions, StartExecResults};
-use futures_util::StreamExt;
-
-const TIMEOUT: Duration = Duration::from_secs(10);
+use anyhow::Result;
 
 /// Number of messages in the deferred queue.
 pub async fn deferred_count(container: &str) -> Result<i64> {
-    tokio::time::timeout(TIMEOUT, query(container))
-        .await
-        .context("postqueue timed out")?
-}
-
-async fn query(container: &str) -> Result<i64> {
-    let docker = Docker::connect_with_unix_defaults().context("connect to docker")?;
-    let exec = docker
-        .create_exec(
-            container,
-            CreateExecOptions {
-                cmd: Some(vec!["postqueue", "-j"]),
-                user: Some("root"),
-                attach_stdout: Some(true),
-                attach_stderr: Some(false),
-                ..Default::default()
-            },
-        )
-        .await
-        .context("create exec")?;
-    let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec.id, None).await?
-    else {
-        return Ok(0);
-    };
-    let mut text = String::new();
-    while let Some(chunk) = output.next().await {
-        text.push_str(&chunk?.to_string());
-    }
+    let text = crate::docker::exec(container, &["postqueue", "-j"]).await?;
     Ok(count_deferred(&text))
 }
 

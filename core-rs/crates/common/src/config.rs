@@ -47,6 +47,13 @@ pub struct Config {
     /// Container whose `postqueue` reports the deferred queue; `none`
     /// disables the lookup.
     pub postfix_container: String,
+    /// Container where `doveadm` runs (quota recalculation, reloads);
+    /// `none` disables those calls.
+    pub dovecot_container: String,
+    /// Mail storage shared with Dovecot (`<root>/../vmail-data`).
+    pub vmail_dir: PathBuf,
+    /// Dovecot configuration shared with its container (`<root>/../conf/dovecot`).
+    pub dovecot_conf_dir: PathBuf,
     /// Postfix SMTP for outgoing mail (`postfix:25` in the container).
     pub smtp_host: String,
     pub smtp_port: u16,
@@ -177,6 +184,10 @@ impl Config {
             timezone: var("TZ").unwrap_or_else(|| "UTC".to_owned()),
             postfix_container: var("FERROPOST_POSTFIX_CONTAINER")
                 .unwrap_or_else(|| "postfix-billionmail".to_owned()),
+            dovecot_container: var("FERROPOST_DOVECOT_CONTAINER")
+                .unwrap_or_else(|| "dovecot-billionmail".to_owned()),
+            vmail_dir: root.join("../vmail-data"),
+            dovecot_conf_dir: root.join("../conf/dovecot"),
             smtp_host: var("FERROPOST_SMTP_HOST")
                 .unwrap_or_else(|| if in_container { "postfix" } else { "localhost" }.to_owned()),
             smtp_port: parse_or(var("FERROPOST_SMTP_PORT"), 25)?,

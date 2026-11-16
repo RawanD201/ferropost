@@ -45,6 +45,7 @@ everything. supervisord sets it for both programs.
 | `warmup` | `SenderIpWarmup().PeriodicTask`, `SenderIpMailProvider().PeriodicTaskForProviders` | Hourly (and at start-up): re-scores each sending IP in warmup and each of its eight provider groups from delivery, bounce, open, click and complaint data, then moves the warmup period and progress along. One aggregate query per score instead of Go's ID lists; a lock keeps a pass from running twice. Go's campaign sender keeps reading the same tables until sending moves. |
 | `campaigns` | `ProcessEmailTasks`, `CleanupIdleExecutors`, `UpdateTaskJoinMailstat` | Sends campaigns from the `recipient_info` queue (claims with `SKIP LOCKED`, each submission recorded as it finishes, claims released after a restart), one worker per due campaign, one sender process at a time. Refreshes each campaign's delivery counts every minute. The `/api/batch_mail/task/*` and `/tracking/*` routes are native only while this job runs in Rust, since pausing and the speed act on the sender. |
 | `api_mail` | `ProcessApiMailQueueWithLock` | Sends mail queued through the send API (`api_mail_logs`) continuously, woken as soon as the API queues mail (Go polled once a minute), with the same claim-and-settle queue as campaigns. |
+| `mailboxes` | `NormalizeMailboxes`, `InitQuotaPluginAndUpdateUsedSpace`, `UpdateMailboxesUsedSpace`, `CheckMailboxesQuotaAlerts` | At start-up lower-cases addresses and, once per install, enables Dovecot's maildir quota. Hourly: reads every `maildirsize` into `used_quota` and the domain totals, and mails 90%/95% quota alerts (once a day per level, across restarts). |
 
 ## Ported so far
 
@@ -54,6 +55,7 @@ everything. supervisord sets it for both programs.
 | `/api/contact/*` (all 9 routes) | Edits and moves keep the rows (tags, history) of groups an address stays in; deletes remove tag assignments; bulk tagging is one statement; the trend no longer skips months. |
 | `/api/email_template/*` (all 8 routes) | Unique names decided by the constraint; `copy` picks the next free `_bak` name; deleting a missing template is a 404 (Go crashed); the content check ignores void elements such as `<br>`. |
 | `/api/batch_mail/task/*` (12 routes), `/api/batch_mail/tracking/*` (2) | Campaigns: create, update, delete, list, find, pause, resume, speed, test mail, send counts, stats, delivery logs. Need the `campaigns` job (above). |
+| `/api/mailbox/*` (all 9 routes) | Create, batch create, update, delete, list, all, export, import. Keeps the maildir and its quota file in step with the database and asks Dovecot to recount usage. |
 | `/api/batch_mail/api/*` (all 7 routes) | Send-API keys (list, create, update, delete, stats) and queueing mail with one (`send`, `batch_send`: public, `x-api-key` header, Go's error codes 1001–1005). |
 | `/api/unsubscribe/one_click` (public, new) | RFC 8058 target of the `List-Unsubscribe` header campaign mail now carries: a POST unsubscribes from the campaign's group, a GET shows the usual page. |
 | `/api/unsubscribe`, `/api/unsubscribe/user_group`, `/api/unsubscribe_new` (public) | Accept Go's links in people's inboxes, with extra checks. Listing an address's groups needs that address's unsubscribe link. The one-click route sends the group's "you're unsubscribed" mail with a resubscribe link. |
@@ -88,6 +90,7 @@ without a restart. Settings specific to Rust use `FERROPOST_*` process variables
 | `FERROPOST_RUST_JOBS` | none | Background jobs owned by Rust (see below); read by Go too |
 | `TZ` | `UTC` | Time zone of dashboard chart buckets |
 | `FERROPOST_POSTFIX_CONTAINER` | `postfix-billionmail` | Container queried for the deferred queue (`none` disables) |
+| `FERROPOST_DOVECOT_CONTAINER` | `dovecot-billionmail` | Container where `doveadm` runs (`none` disables) |
 | `FERROPOST_MAILLOG_PATH` | `$FERROPOST_ROOT/../logs/postfix/mail.log` | Postfix log to ingest |
 | `FERROPOST_SMTP_HOST` / `FERROPOST_SMTP_PORT` | `postfix` (container) / `localhost`, 25 | Where subscription mail is submitted |
 | `RUST_LOG` | `info` | Log filter |
@@ -208,8 +211,9 @@ These are security fixes that keep the frontend working unchanged:
 - **Outgoing mail** (subscription mail now, campaigns from step 4c): headers are encoded and cannot be
   injected, a plain-text part accompanies the HTML, and the session to
   Postfix upgrades to TLS. Mailbox passwords stay stored reversibly (hex of
-  base64), as Go needs them to submit as each sender; replacing that needs a
-  Postfix-side change and is tracked for step 5.
+  base64): the core submits as each sender with them, and the console shows
+  them. Removing that needs Dovecot master-user submission and dropping the
+  console's password column.
 - **Unsubscribe links:** Go signed them with a secret derived from fixed
   default values, identical on default installs, so anyone could forge an
   unsubscribe for any address. New links use a random secret; Go's links
@@ -277,6 +281,18 @@ These are security fixes that keep the frontend working unchanged:
   sent the raw template to addresses that were not contacts) and carries
   the one-click unsubscribe headers. The list's open and click rates are
   real (Go filtered them by an empty window, so they were always 0).
+- **Mailboxes:** new and changed passwords are hashed with SHA512-CRYPT (with
+  Dovecot's `{SHA512-CRYPT}` prefix; Go and Roundcube write MD5-CRYPT, which
+  keeps working). An imported mailbox without a password gets a random one:
+  Go gave every such mailbox `123456`, open to anyone over IMAP and SMTP.
+  Imports default to the normal quota (Go: 1000 bytes). `mailbox/all` no
+  longer returns hashes, the list leaves out the reversible copy, and the
+  audit log never records passwords (Go logged the reversible copy).
+  `update` keeps fields it is not sent, the domain must exist, local parts
+  are validated (Go's pattern was unanchored), batch passwords come from a
+  secure generator (Go seeded `math/rand` with the time) and only mailboxes
+  actually created are reported. Quota alerts for a domain go to its
+  administrator mailboxes (Go mailed `noreply@` from itself).
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -287,5 +303,5 @@ These are security fixes that keep the frontend working unchanged:
 2. ~~Simple domains: tags, operation_log, email_template, contacts~~ (done)
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
-5. System-facing: domains/DNS/DKIM, ACME, relay, multi-IP, mailboxes, mail_services, rspamd proxy
+5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages; domains/DNS/DKIM, ACME and multi-IP; relay; mail_services and the rspamd proxy; settings, files and the Docker API; accounts, roles and login; AskAI and video outreach
 6. Switch off Go; move schema ownership to sqlx migrations
