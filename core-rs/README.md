@@ -3,16 +3,18 @@
 Ferropost is an email marketing platform and mail server derived from
 [BillionMail](https://github.com/aaPanel/BillionMail) and licensed, like it,
 under AGPL-3.0. `core-rs` is the Rust core replacing the Go core (`../core`)
-one domain at a time.
+one domain at a time. Every route and job is ported; Go no longer runs.
 
-The `ferropost` binary is the public front door: it terminates HTTP/HTTPS on
-the console ports, serves the routes already ported to Rust, and proxies
-everything else to the Go core, which runs on a private address. The Vue frontend, the database schema and the
-API contract stay unchanged until the Go side is gone.
+The `ferropost` binary is the whole core: it terminates HTTP/HTTPS on the
+console ports, serves the API, the console's files and Roundcube, and runs
+the background jobs. The Vue frontend, the database schema and the API
+contract are Go's. With `FERROPOST_GO_UPSTREAM` set, routes it does not know
+still go to a Go core on a private address, which is how the migration ran.
 
 ```
 browser ─► ferropost :80/:443 ─┬─► native route (Rust)  ─► Postgres / Redis
-                                    └─► fallback proxy ─► Go core 127.0.0.1:8181 (internal mode)
+                               ├─► console files, Roundcube (PHP-FPM)
+                               └─► anything else: 404, or a Go core if FERROPOST_GO_UPSTREAM is set
 ```
 
 Every request first passes the **edge** (`crates/api/src/edge.rs`). It resolves
@@ -34,10 +36,9 @@ in Rust.
 
 ## Background jobs
 
-A job moves to Rust by name in `FERROPOST_RUST_JOBS` (comma-separated).
-Both processes read it: Go skips the listed jobs (`timers.OwnedByRust`) and
-Rust runs exactly those, so a job never runs twice. Unset means Go keeps
-everything. supervisord sets it for both programs.
+A job runs in Rust when its name is in `FERROPOST_RUST_JOBS` (comma-separated,
+or `all`). During the migration Go read the same list and skipped those jobs
+(`timers.OwnedByRust`), so a job never ran twice. The image sets `all`.
 
 | Job | Replaces | Notes |
 |---|---|---|
@@ -51,7 +52,7 @@ everything. supervisord sets it for both programs.
 | `ssl` | `AutoRenewSSL`, `FixDovecotSSLConfig` | Every 12 hours renews certificates this server obtained with a third of their lifetime left (uploaded ones in their last week), obtains missing mail host certificates (a failed host is retried after a day), and at start-up moves Dovecot's per-host SSL blocks after the global settings. |
 | `multi_ip` | `ReapplyAllIptablesRules` | Three seconds after start-up replaces the host's SNAT rules (dedicated network → sending IP) in one privileged helper run, removing stale ones even when no dedicated IP is left. |
 | `blacklist` | `CheckDomainsBlacklist` | Once a day (first pass ten minutes after start-up, then 24 hours after the last one, across restarts) checks every mail host's address on the DNS blocklists, three hours apart for up to eight domains as Go did, and mails the alert recipients about a listing. Honours the automatic-scan switch. |
-| `domains` | `FreshRecords`, `RepairDKIMSigningConfig`, `FixRspamdDKIMSigningConfig` | At start-up makes missing DKIM keys, rewrites rspamd's `dkim_signing.conf` only if it changed (Go rewrote it and restarted rspamd at every start) and makes existing private keys readable by rspamd only. Every 5 minutes checks every domain's DNS records (cached for the domain list) and makes keys that went missing. Go keeps `UpdateBaseURL`, which only fills Go's own memory for the routes it still serves. |
+| `domains` | `FreshRecords`, `RepairDKIMSigningConfig`, `FixRspamdDKIMSigningConfig` | At start-up makes missing DKIM keys, rewrites rspamd's `dkim_signing.conf` only if it changed (Go rewrote it and restarted rspamd at every start) and makes existing private keys readable by rspamd only. Every 5 minutes checks every domain's DNS records (cached for the domain list) and makes keys that went missing. `UpdateBaseURL` was not moved: it only filled Go's own memory. |
 | `askai` | `AutoGetProjectInfo` | Reads the brand site of every AskAI project not read yet, every 10 minutes (a new project is read at once; Go polled every 5 seconds and retried a failing site forever). |
 | `log_maintenance` | `CompressAndCleanupLogs`, the fail2ban access-log watcher | Ten minutes after start-up and then daily, gzips the core's logs from before today, keeps the newest thirty of each kind and packs operation-log days older than a month into `.tar.gz` (Go waited a day first). fail2ban is told about each new day's access log as `ferropost` creates it, whichever process owns this job. |
 | `abnormal_recipient` | `AbnormalRecipientAutoStat` | Every 30 minutes counts one more failure for each address that bounced since the last pass (latest reason kept, one statement); campaigns skip an address at 3. |
@@ -78,21 +79,21 @@ everything. supervisord sets it for both programs.
 | `/api/operation_log/*` (all 4 routes) | Usernames by join. Output logs are read backwards from the end, so a page costs only the lines returned and long lines no longer drop a whole file. |
 | `/api/relay/*` (all 6 routes) | SMTP relays: list, add, edit, delete, unbound domains, connection test. Writes `master.cf`, `main.cf`, `sasl_passwd` and the pgsql maps, reloading Postfix only when they change, and rspamd's DKIM signing (relayed domains are signed by the provider). |
 | `/api/services/*`, `/api/mail_bcc/*`, `/api/mail_forward/*`, `/api/postfix_queue/*` (all 19 routes) | Mail services: the editor for Postfix's, Dovecot's and rspamd's main configuration file (checked by the service before it stays), BCC rules and their Postfix maps, mail forwarding (`alias`), the deferred queue and Postfix's queue settings. |
-| `/api/ssl/apply_cert`, `/api/ssl/console_apply_cert`, `/api/ssl/get_cert_list`, `/api/domains/set_ssl`, `/api/domains/get_ssl`, `/.well-known/acme-challenge/*` | Mail host and console certificates: Let's Encrypt over HTTP-01 (challenges answered here; Go's own still reach Go), uploads, and installation in Postfix's and Dovecot's SNI. |
+| `/api/ssl/apply_cert`, `/api/ssl/console_apply_cert`, `/api/ssl/get_cert_list`, `/api/domains/set_ssl`, `/api/domains/get_ssl`, `/.well-known/acme-challenge/*` | Mail host and console certificates: Let's Encrypt over HTTP-01 (challenges answered here), uploads, and installation in Postfix's and Dovecot's SNI. |
 | `/api/multi_ip_domain/apply`, `/api/multi_ip_domain/test` | Dedicated sending IPs: writes `docker-compose_addnetwork.yml` on the host and Postfix's transports (undone on failure), and checks a domain's address and SPF records for its IP. |
 | `/api/domains/*` (all 8 routes) | Sending domains: create, update, brand flag, delete, list, all, refresh DNS records, default domain. A new domain gets Go's five system mailboxes, its DKIM keys and its mail host certificate, as before. |
 | `/api/domain_blocklist/check`, `/api/domain_blocklist/logs` | Checks a mail host on 139 DNS blocklists in the background and serves the check's log. |
 | `/api/askai/supplier/*` (all 15 routes) | AI providers and their models, in Go's files under `conf/supplier/` (built-in providers copied from the templates). |
 | `/api/askai/project/*` (all 23 routes), `/media/*` (public) | AskAI brand projects in Go's files under `conf/askai/`: details, company profile, style, sitemap, footer, prompt, knowledge base and images. Images are stored and served here. |
 | `/api/askai/chat/*` (all 9 routes) | AskAI chats designing email templates, streamed as server-sent events, in Go's files under `conf/chat/`. Go's AskAI code is removed. |
-| Console files, `/roundcube/*` | The built console (`public/dist`), the subscription pages (`public/html`) and `index.html` for the console's own routes; Roundcube through PHP-FPM's FastCGI socket. Only Go's API docs (`/swagger`, `/api.json`) still go to Go while it runs. |
+| Console files, `/roundcube/*` | The built console (`public/dist`), the subscription pages (`public/html`) and `index.html` for the console's own routes; Roundcube through PHP-FPM's FastCGI socket. Go's API docs (`/swagger`, `/api.json`) went with Go. |
 | `/rspamd/*` | rspamd's web interface, logged in with the controller password, for admins (a cookie bound to their login session). |
 | `/api/settings/*` (all 16 routes) | System settings: the config page, `.env` keys, the IP whitelist, the console certificate, the reverse-proxy URL, the API token, the API docs switch, blacklist switches and the alert mailbox. Applied at once; only the API docs switch restarts the core (Go reads it at start-up). |
 | `/api/docker_api/*` (all 3 routes) | The platform's containers: list, usage (as `docker stats` computes it), restart. |
 | `/api/file/download`, `/api/file/read` | Never implemented in Go; answered natively (501) so no file path reaches the proxy. |
 | `/api/tags/*` (all 6 routes) | List: one query with a join instead of N+1 group lookups, literal keyword match. Writes: the unique constraint decides duplicates; bulk tagging is one all-or-nothing statement and matches addresses case-insensitively. |
 
-Everything else is served by Go through the proxy.
+Nothing else is served: an unknown `/api/` route gets the 404 envelope.
 
 ## Configuration
 
@@ -165,15 +166,49 @@ an applied migration must never change.
 
 ## Build and deploy
 
-`sh core-rs/build.sh [all|x86|arm]` builds static musl binaries in Docker and
-writes `core/ferropost-<arch>`, which the core image copies. supervisord runs
-`ferropost` alone, with `FERROPOST_GO_UPSTREAM=none` (no Go fallback) and
-`FERROPOST_RUST_JOBS=all` (every background job).
+The core image is built on the server from the checkout:
+`docker compose build core-billionmail`, which `install.sh` runs before the
+first start and `update.sh` after merging new code. `Dockerfiles/core/Dockerfile`
+has three stages:
 
-**Rollback to the Go core:** check out `Dockerfiles/core/` from before step 6d
-(commit `6bdea793`), build the Go binaries with `core/go-build.sh` and the
-image again: Go then runs in internal mode behind `ferropost`, as during the
-migration. The Go source stays in `core/` until it is removed for good.
+- **console:** `pnpm install --frozen-lockfile` and `pnpm build` (Node 26,
+  pnpm 12.20.0). Dependencies' install scripts stay off; the list is in
+  `core/frontend/pnpm-workspace.yaml`, as pnpm stops an install on scripts
+  nobody decided on.
+- **core:** a static musl `ferropost` (`cargo build --release --locked`). The
+  dependencies are compiled first against empty crates, in their own layer,
+  so a code change recompiles only the workspace.
+- **runtime:** Alpine with supervisord running `ferropost` alone, with
+  `FERROPOST_GO_UPSTREAM=none` (no Go fallback) and `FERROPOST_RUST_JOBS=all`
+  (every background job).
+
+The build context is the repository root, which on a server also holds the
+mail, the databases, the keys and `.env`; `.dockerignore` is an allowlist of
+the files the image copies. Compose names the image `ferropost/core:local`
+with `pull_policy: never`: it builds the image when it is missing and never
+pulls it, so no registry image can stand in for the local code.
+`update.sh` builds the new image while the old containers keep running (a
+failed build stops nothing), then restarts. The image it replaced stays as
+`ferropost/core:previous` (the one before that is removed), so going back is:
+
+```bash
+docker tag ferropost/core:previous ferropost/core:local && docker compose up -d
+```
+
+An older core starts on a database a newer one migrated (`migrate` leaves
+migrations it does not know alone). That is safe while migrations only add
+tables and columns; a migration that changes or removes one breaks going
+back, and its release notes must say so.
+
+The Dockerfile uses only classic instructions (no cache mounts): without the
+buildx plugin, as after `install.sh`'s fallback to Docker's static binaries,
+Compose builds with Docker's classic builder.
+
+**The Go core** is not built any more. Commit `6bdea793` (before step 6d) is
+the last tree in which it ran behind `ferropost`; its image needed the Go and
+`ferropost` binaries built beforehand (`core/go-build.sh`, and that commit's
+`core-rs/build.sh`) and the old console build in `core/public/dist`. The Go
+source stays in `core/` until it is removed for good.
 
 ## Porting a domain
 
@@ -383,8 +418,8 @@ These are security fixes that keep the frontend working unchanged:
   place, so Postfix and Dovecot keep a default certificate. The alert mailbox logs
   in over verified TLS, its password is kept when the console sends it back
   empty (for the same server only) and its file is private.
-- **API token:** only the token issued last works, on every route including
-  those Go still serves; Go never checked, so regenerating it left every
+- **API token:** only the token issued last works, on every route; Go never
+  checked, so regenerating it left every
   earlier token working forever. Regenerating is reserved to admins.
 - **Docker API:** only the platform's containers are listed, inspected or
   restarted; Go restarted or read any container on the host. CPU usage is
@@ -561,10 +596,6 @@ These are security fixes that keep the frontend working unchanged:
   login session: logging out, losing the admin role or a disabled account
   ends it at once. The console's cookies and token are not passed to
   rspamd.
-- **Options cache:** Go keeps `bm_options` in memory for 24 hours, so the
-  reverse-proxy URL and the blacklist switches written here reach Go's
-  remaining users (domains, the blacklist check) after its next restart,
-  until those move in step 5g.
 - **TLS:** renewed per-domain certificates are reloaded within 5 minutes
   without a restart. A missing default certificate falls back to an in-memory
   self-signed one.
@@ -576,4 +607,4 @@ These are security fixes that keep the frontend working unchanged:
 3. ~~`maillog_stat` and `overview`: Postfix log ingestion, the `/pmta/` tracker, dashboard stats~~ (done)
 4. ~~Sending: building blocks, subscribe/unsubscribe flows, IP warmup job, campaigns on a durable Postgres queue, the send API~~ (done)
 5. System-facing: mailboxes (done); abnormal recipients, the subscription form and languages (done); sign-in (done); settings, files and the Docker API (done); relay (done); mail_services and the rspamd proxy (done); certificates and ACME (done); dedicated IPs (done); blocklist checks (done); domains, DNS records and DKIM keys (done); video outreach (dropped); AskAI, self-hosted (done)
-6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files and Roundcube (done); the image without Go (done). Left: removing the Go source; Go's generated API docs (`/swagger`) are gone with it
+6. Switch off Go: schema in sqlx migrations (done); start-up work, the remaining jobs and log files (done); static files and Roundcube (done); the image without Go (done); the image built from source on the server (done). Left: removing the Go source. Go's generated API docs (`/swagger`) already went when Go stopped running

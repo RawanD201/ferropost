@@ -40,10 +40,10 @@ Dockerfiles/            # Container definitions
 ## Stack
 
 - **Backend:** Go 1.22, GoFrame v2, PostgreSQL, Redis
-- **Backend (migration in progress):** Rust (edition 2024), axum, sqlx, fred. `ferropost` owns the public ports and proxies unported routes to Go running with `FERROPOST_GO_INTERNAL_ADDR`
+- **Backend (migration in progress):** Rust (edition 2024), axum, sqlx, fred. `ferropost` serves every route and runs every job; Go no longer runs (the image sets `FERROPOST_GO_UPSTREAM=none`). New routes go in `core-rs/crates/api/src/routes/`, not `core/internal/controller/`
 - **Frontend:** Vue 3, TypeScript, Pinia, Naive UI, Vitest, pnpm
 - **Mail:** Postfix, Dovecot, Rspamd
-- **Deploy:** Docker Compose
+- **Deploy:** Docker Compose; the core image is built on the server from this checkout (`docker compose build core-billionmail`, `Dockerfiles/core/Dockerfile`, allowlist in `.dockerignore`)
 
 ## Organization Rules
 
@@ -93,7 +93,7 @@ cd core && go test -count=1 -short ./internal/service/... && cd frontend && pnpm
 - When adding new controllers, add the module name to the RBAC `modules` list in `core/internal/service/middlewares/rbac.go` (and `MODULES` in `core-rs/crates/domain/src/rbac.rs`).
 - Rust mail infrastructure: resolve hostnames with `ferropost_store::domains::mail_hostname` (DB `a_record`, then `ferropost_domain::mail::mx_hostname_fallback`), never the bare domain.
 - When porting a route to Rust, register every HTTP method Go serves on that path, keep the `{success, code, msg, data}` envelope (errors on HTTP 200), and move the domain's timers out of Go in the same change.
-- Moving a Go timer to Rust: guard it in Go with `timers.OwnedByRust("<job>")`, start it in `ferropost-jobs` behind `config.runs_job("<job>")`, and add the name to `FERROPOST_RUST_JOBS` for both programs in `Dockerfiles/core/supervisord.conf`.
+- A background job: start it in `ferropost-jobs` (or `ferropost-api` when it needs the app state) behind `config.runs_job("<job>")`; supervisord already sets `FERROPOST_RUST_JOBS=all`.
 
 ## Commands
 

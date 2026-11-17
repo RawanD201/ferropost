@@ -156,8 +156,14 @@ pub(crate) fn like_contains(input: &str) -> String {
 
 /// Brings the database schema up to date (`migrations/`; the first one is
 /// Go's start-up schema, so it also applies to databases Go created).
+///
+/// Migrations a newer core applied are left alone instead of refusing to
+/// start, so an update can be rolled back to the previous image; the ones
+/// this core knows are still checked against their checksums.
 pub async fn migrate(pg: &PgPool) -> Result<()> {
-    sqlx::migrate!("./migrations")
+    let mut migrator = sqlx::migrate!("./migrations");
+    migrator.set_ignore_missing(true);
+    migrator
         .run(pg)
         .await
         .context("apply database migrations")?;

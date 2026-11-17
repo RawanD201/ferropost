@@ -185,7 +185,7 @@ GetSysInfo(){
     echo -e ${SYS_VERSION}
     echo -e Bit:${SYS_BIT} Mem:${MEM_TOTAL}M Core:${CPU_INFO}
     echo -e ${SYS_INFO}
-    echo -e "Please screenshot the above error message and post to the https://github.com/aaPanel/BillionMail/issues for help"
+    echo -e "Please screenshot the above error message and post to the https://github.com/RawanD201/ferropost/issues for help"
 
 }
 
@@ -1366,6 +1366,11 @@ EOF
         Red_Error "docker-compose.yml not found."
     fi
     ${DOCKER_COMPOSE} pull
+    # The core image is built here from this checkout (see docker-compose.yml).
+    echo -e "Building the Ferropost core from source, the first build takes several minutes..."
+    if ! ${DOCKER_COMPOSE} build core-billionmail; then
+        Red_Error "ERROR: Building the core image failed, see the messages above. The build downloads from Docker Hub, npm and crates.io and needs a few GB of free disk."
+    fi
     ${DOCKER_COMPOSE} up -d
     if [ $? -eq 0 ]; then
         echo -e "Billionmail installation completed successfully!"

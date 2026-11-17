@@ -1,0 +1,21 @@
+# The core image (Dockerfiles/core/Dockerfile) is built with the repository
+# root as its context. On a server this folder also holds the mail, the
+# databases, the keys and .env, so nothing goes to the builder unless it is
+# listed here.
+*
+!Dockerfiles/core
+!core-rs/Cargo.toml
+!core-rs/Cargo.lock
+!core-rs/crates
+!core/frontend
+!core/languages
+!core/manifest
+!core/public/html
+!core/template
+
+# Built or installed locally; the image makes its own.
+core/frontend/node_modules
+core/frontend/dist
+# Local overrides and deploy settings that a checkout from git does not have.
+core/frontend/**/*.local
+core/frontend/deploy.js

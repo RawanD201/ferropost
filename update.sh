@@ -71,7 +71,7 @@ GetSysInfo(){
     echo -e ${SYS_VERSION}
     echo -e Bit:${SYS_BIT} Mem:${MEM_TOTAL}M Core:${CPU_INFO}
     echo -e ${SYS_INFO}
-    echo -e "Please screenshot the above error message and post to the https://github.com/aaPanel/BillionMail/issues for help"
+    echo -e "Please screenshot the above error message and post to the https://github.com/RawanD201/ferropost/issues for help"
 
 }
 
@@ -186,6 +186,15 @@ Docker_Status_Check(){
     fi
 }
 
+# The full ID of the image the core container runs; empty without a container.
+Core_Image_Id(){
+    local container
+    container=$(${DOCKER_COMPOSE} ps -aq core-billionmail 2>/dev/null | head -n 1)
+    if [ -n "${container}" ]; then
+        docker inspect --format '{{.Image}}' "${container}" 2>/dev/null
+    fi
+}
+
 Update_BillionMail(){
 
     if ! Command_Exists git ; then
@@ -259,6 +268,14 @@ Update_BillionMail(){
         Red_Error "docker-compose.yml not found."
     fi
 
+    # The core image is built from the code just merged while the running one
+    # keeps serving, so a failed build stops nothing.
+    OLD_CORE_IMAGE=$(Core_Image_Id)
+    echo -e "Building the Ferropost core from the new code, please wait..."
+    if ! ${DOCKER_COMPOSE} build core-billionmail; then
+        Red_Error "ERROR: Building the core image failed, see the messages above. The running version was left as it is. The build downloads from Docker Hub, npm and crates.io and needs a few GB of free disk."
+    fi
+
     echo -e "Stop BillionMail, please wait..."
     sleep 3
     ${DOCKER_COMPOSE} down
@@ -272,6 +289,18 @@ Update_BillionMail(){
         echo -e "\033[32m✅ Started successfully, update completed.\033[0m"
     else
         echo -e "\033[33m⚠️ Update completed, please check container status. If startup failed, check container logs.\033[0m"
+    fi
+
+    # The core image this update replaced stays as ferropost/core:previous, so
+    # going back is: docker tag ferropost/core:previous ferropost/core:local
+    # && docker compose up -d. The one kept by the update before is dropped.
+    NEW_CORE_IMAGE=$(Core_Image_Id)
+    if [ -n "${OLD_CORE_IMAGE}" ] && [ "${OLD_CORE_IMAGE}" != "${NEW_CORE_IMAGE}" ]; then
+        KEPT_CORE_IMAGE=$(docker image inspect --format '{{.Id}}' ferropost/core:previous 2>/dev/null)
+        docker tag "${OLD_CORE_IMAGE}" ferropost/core:previous
+        if [ -n "${KEPT_CORE_IMAGE}" ] && [ "${KEPT_CORE_IMAGE}" != "${OLD_CORE_IMAGE}" ]; then
+            docker image rm "${KEPT_CORE_IMAGE}" > /dev/null 2>&1
+        fi
     fi
 
     [ ! -d "/opt" ] && mkdir /opt

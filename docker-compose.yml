@@ -173,7 +173,14 @@ services:
             - webmail
 
     core-billionmail:
-      image: billionmail/core:4.9.3
+      # Built on this server from this checkout (install.sh and update.sh
+      # build it) and never pulled, so no image from a registry can stand in
+      # for the code here.
+      image: ferropost/core:local
+      build:
+        context: .
+        dockerfile: Dockerfiles/core/Dockerfile
+      pull_policy: never
       hostname: core-manage
       depends_on:
         - pgsql-billionmail

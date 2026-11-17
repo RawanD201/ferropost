@@ -1,0 +1,12 @@
+# Install scripts of these dependencies stay off: the console builds and its
+# tests pass without them (they print notices, pick prebuilt binaries, or
+# serve tools the build does not use), and pnpm stops an install that has
+# scripts nobody decided on. Allow one only if a build needs it.
+allowBuilds:
+  '@parcel/watcher': false
+  core-js: false
+  cpu-features: false
+  es5-ext: false
+  esbuild: false
+  ssh2: false
+  vue-demi: false

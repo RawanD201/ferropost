@@ -4,10 +4,10 @@ Open-source mail server and email marketing platform. Run newsletters,
 campaigns and transactional mail from your own server, with your own domains
 and your own data.
 
-> **Status: early development.** Ferropost is moving its backend from Go to
-> Rust one area at a time, and there is no release yet. The bundled
-> `docker-compose.yml` still pulls the upstream BillionMail images, which do
-> not contain the Ferropost core.
+> **Status: early development.** Ferropost's backend now runs in Rust
+> alone, and there is no release yet. `install.sh` and `update.sh` build the
+> core image on your server from this repository's source; the mail service
+> images (Postfix, Dovecot, Rspamd) are still pulled from upstream BillionMail.
 
 ## Features
 
@@ -21,8 +21,8 @@ and your own data.
 
 | Path | What it is |
 |---|---|
-| [`core-rs/`](core-rs/README.md) | The new Rust core (axum, sqlx). It serves the console on ports 80/443 and answers the routes already ported. |
-| `core/` | The original Go core (GoFrame), being retired. It answers every route not yet ported, behind the Rust core. |
+| [`core-rs/`](core-rs/README.md) | The Rust core (axum, sqlx). It serves the console and the API on ports 80/443 and runs the background jobs. |
+| `core/` | The original Go core (GoFrame), retired: it no longer runs, and its source stays until it is removed. |
 | `core/frontend/` | The web console (Vue 3, TypeScript, Naive UI) |
 | `conf/`, `Dockerfiles/` | Configuration and images for the mail services |
 
@@ -42,7 +42,8 @@ cd core && go vet ./... && go build -o billionmail main.go
 cd core/frontend && pnpm install && pnpm dev    # pnpm test, pnpm run lint
 ```
 
-`core-rs/build.sh` builds the static Linux binaries that go into the core image.
+`docker compose build core-billionmail` builds the core image (the console and
+the Rust core, from source) with `Dockerfiles/core/Dockerfile`.
 
 ## License
 

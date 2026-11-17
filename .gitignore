@@ -49,3 +49,5 @@ core/frontend/coverage/
 
 # Python
 __pycache__/
+# Built into the core image from core/frontend (Dockerfiles/core/Dockerfile)
+core/public/dist/

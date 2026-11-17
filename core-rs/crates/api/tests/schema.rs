@@ -1,6 +1,7 @@
-//! The schema migration: a second run changes nothing, its SQL applies to
-//! a database Go already made, and relays of installs older than
-//! `bm_relay_config` are moved (once).
+//! The schema migration: a second run changes nothing, a migration from a
+//! newer core does not stop it, its SQL applies to a database Go already
+//! made, and relays of installs older than `bm_relay_config` are moved
+//! (once).
 
 mod common;
 
@@ -15,6 +16,17 @@ async fn schema() {
     };
     let pg = &h.store.pg;
     ferropost_store::migrate(pg).await.expect("second run");
+    // After a rollback: a migration only a newer core knows is left alone.
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+         VALUES (99990101000000, 'from a newer core', true, '\\x00', 0)",
+    )
+    .execute(pg)
+    .await
+    .expect("newer migration");
+    ferropost_store::migrate(pg)
+        .await
+        .expect("starts on a newer schema");
     // A database Go made has every table: the SQL runs over it unchanged.
     sqlx::raw_sql(SCHEMA)
         .execute(pg)
