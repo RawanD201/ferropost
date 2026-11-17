@@ -273,7 +273,7 @@ Update_BillionMail(){
     OLD_CORE_IMAGE=$(Core_Image_Id)
     echo -e "Building the Ferropost core from the new code, please wait..."
     if ! ${DOCKER_COMPOSE} build core-billionmail; then
-        Red_Error "ERROR: Building the core image failed, see the messages above. The running version was left as it is. The build downloads from Docker Hub, npm and crates.io and needs a few GB of free disk."
+        Red_Error "ERROR: Building the core image failed, see the messages above. The running version was left as it is. The build downloads from Docker Hub, npm and crates.io, and needs a few GB of free disk and about 2.5 GB of free memory (add swap on a small server)."
     fi
 
     echo -e "Stop BillionMail, please wait..."

@@ -6,8 +6,9 @@ and your own data.
 
 > **Status: early development.** Ferropost's backend now runs in Rust
 > alone, and there is no release yet. `install.sh` and `update.sh` build the
-> core image on your server from this repository's source; the mail service
-> images (Postfix, Dovecot, Rspamd) are still pulled from upstream BillionMail.
+> core image on your server from this repository's source (the build needs
+> about 2.5 GB of free memory, or swap); the mail service images (Postfix,
+> Dovecot, Rspamd) are still pulled from upstream BillionMail.
 
 ## Features
 

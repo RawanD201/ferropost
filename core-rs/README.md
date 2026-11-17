@@ -204,6 +204,14 @@ The Dockerfile uses only classic instructions (no cache mounts): without the
 buildx plugin, as after `install.sh`'s fallback to Docker's static binaries,
 Compose builds with Docker's classic builder.
 
+The first build compiles every dependency; later ones recompile only
+Ferropost's crates (about six minutes on two desktop cores, longer on a slow
+server). The largest compiler process, for `ferropost-api`, needs about
+2.5 GB of memory, so a server with less free memory needs swap for the
+build; without it the build is killed, and an update leaves the running
+version in place. This is why the release profile keeps Cargo's defaults:
+thin LTO with one codegen unit needed 3.8 GB.
+
 **The Go core** is not built any more. Commit `6bdea793` (before step 6d) is
 the last tree in which it ran behind `ferropost`; its image needed the Go and
 `ferropost` binaries built beforehand (`core/go-build.sh`, and that commit's

@@ -85,7 +85,10 @@ opt-level = 3
 [profile.dev.package.rsa]
 opt-level = 3
 
+# The image is compiled on the mail server itself (Dockerfiles/core), so the
+# release profile keeps Cargo's defaults (no LTO, 16 codegen units). With two
+# jobs, compiling ferropost-api and linking took 5.5 minutes and 2.4 GB in the
+# largest process, against 8.3 minutes and 3.8 GB with thin LTO and one
+# codegen unit, for a binary 7 MB larger.
 [profile.release]
-lto = "thin"
-codegen-units = 1
 strip = true

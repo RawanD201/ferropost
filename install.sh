@@ -1369,7 +1369,7 @@ EOF
     # The core image is built here from this checkout (see docker-compose.yml).
     echo -e "Building the Ferropost core from source, the first build takes several minutes..."
     if ! ${DOCKER_COMPOSE} build core-billionmail; then
-        Red_Error "ERROR: Building the core image failed, see the messages above. The build downloads from Docker Hub, npm and crates.io and needs a few GB of free disk."
+        Red_Error "ERROR: Building the core image failed, see the messages above. The build downloads from Docker Hub, npm and crates.io, and needs a few GB of free disk and about 2.5 GB of free memory (add swap on a small server)."
     fi
     ${DOCKER_COMPOSE} up -d
     if [ $? -eq 0 ]; then
