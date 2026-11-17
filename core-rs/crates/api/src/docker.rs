@@ -388,22 +388,24 @@ async fn helper_image(config: &Config, docker: &Docker) -> Result<String> {
     {
         return Ok(image);
     }
-    const FALLBACK: &str = "alpine:3.20";
-    if docker.inspect_image(FALLBACK).await.is_err() {
+    // The core image's base (Dockerfiles/core); only `chroot` and `sh` are used.
+    const ALPINE_TAG: &str = "3.24";
+    let fallback = format!("alpine:{ALPINE_TAG}");
+    if docker.inspect_image(&fallback).await.is_err() {
         let mut pull = docker.create_image(
             Some(bollard::query_parameters::CreateImageOptions {
                 from_image: Some("alpine".to_owned()),
-                tag: Some("3.20".to_owned()),
+                tag: Some(ALPINE_TAG.to_owned()),
                 ..Default::default()
             }),
             None,
             None,
         );
         while let Some(step) = pull.next().await {
-            step.context("pull alpine:3.20")?;
+            step.with_context(|| format!("pull {fallback}"))?;
         }
     }
-    Ok(FALLBACK.to_owned())
+    Ok(fallback)
 }
 
 /// Runs `cmd` on the host: in a throw-away privileged container that

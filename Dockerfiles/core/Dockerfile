@@ -11,7 +11,7 @@
 
 ARG NODE_IMAGE=node:26-slim
 ARG RUST_IMAGE=rust:1.99-alpine
-ARG RUNTIME_IMAGE=alpine:3.20
+ARG RUNTIME_IMAGE=alpine:3.24
 
 # --- The web console ------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS console

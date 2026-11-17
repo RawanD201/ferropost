@@ -40,8 +40,8 @@ if [[ ${FAIL2BAN_INIT} == "y" ]]; then
     if ! grep -q "restart_fail2ban.sh" /var/spool/cron/crontabs/root; then
         chmod +x /restart_fail2ban.sh
         echo "02 0,12 * * * bash /restart_fail2ban.sh" >> /var/spool/cron/crontabs/root
+        # root-owned and private, as busybox crond wants (Alpine has no crontab group)
         chmod 600 /var/spool/cron/crontabs/root
-        chown root:crontab /var/spool/cron/crontabs/root    
         pkill -9 crond
     fi
     bash /restart_fail2ban.sh
