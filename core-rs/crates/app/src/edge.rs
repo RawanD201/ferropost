@@ -218,7 +218,7 @@ async fn ip_allowed(state: &AppState, ip: IpAddr) -> bool {
 
 /// The server's public address: `FERROPOST_SERVER_IP`, else looked up
 /// online once an hour.
-pub(crate) async fn server_public_ip(state: &AppState) -> Option<IpAddr> {
+pub async fn server_public_ip(state: &AppState) -> Option<IpAddr> {
     match state.config.server_ip {
         Some(configured) => Some(configured),
         None => state.caches.server_ip.get_with((), fetch_public_ip()).await,
@@ -226,7 +226,7 @@ pub(crate) async fn server_public_ip(state: &AppState) -> Option<IpAddr> {
 }
 
 /// Whitelist entries are single addresses; CIDR ranges are accepted too.
-pub(crate) fn parse_net(entry: &str) -> Option<IpNet> {
+pub fn parse_net(entry: &str) -> Option<IpNet> {
     let entry = entry.trim();
     entry.parse::<IpNet>().ok().or_else(|| {
         entry
@@ -332,7 +332,7 @@ fn entrance_valid(value: &str, key: &[u8; 32], safe_path: &str, now: i64) -> boo
 
 /// `Set-Cookie` that passes the safe entrance, when one is configured (for
 /// sign-ins that skip it, like aaPanel SSO; Go set its session flag).
-pub(crate) fn entrance_set_cookie(state: &AppState, tls: bool) -> Option<String> {
+pub fn entrance_set_cookie(state: &AppState, tls: bool) -> Option<String> {
     let safe_path = state
         .config
         .env

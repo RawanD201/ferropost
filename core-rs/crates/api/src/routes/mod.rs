@@ -41,10 +41,7 @@ use crate::{auth, rbac};
 
 const BODY_LIMIT: usize = 32 * 1024 * 1024;
 
-/// Current Unix time for the schema's `INTEGER` timestamp columns.
-pub(crate) fn now() -> i32 {
-    i32::try_from(chrono::Utc::now().timestamp()).unwrap_or(i32::MAX)
-}
+pub use ferropost_app::now;
 
 pub fn router(state: AppState) -> Router<AppState> {
     // Route layers run outermost-last: auth, then RBAC, then the handler.

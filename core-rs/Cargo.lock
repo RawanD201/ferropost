@@ -858,6 +858,7 @@ dependencies = [
  "bollard",
  "chrono",
  "csv",
+ "ferropost-app",
  "ferropost-common",
  "ferropost-domain",
  "ferropost-jobs",
@@ -901,6 +902,38 @@ dependencies = [
  "uuid",
  "x509-parser",
  "zip 2.6.1",
+]
+
+[[package]]
+name = "ferropost-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bollard",
+ "chrono",
+ "ferropost-common",
+ "ferropost-domain",
+ "ferropost-sender",
+ "ferropost-store",
+ "futures-util",
+ "hex",
+ "hickory-resolver",
+ "hmac 0.12.1",
+ "http-body-util",
+ "hyper-util",
+ "ipnet",
+ "jsonwebtoken",
+ "moka",
+ "rand 0.8.8",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

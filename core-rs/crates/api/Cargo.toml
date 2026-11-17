@@ -13,6 +13,7 @@ pwhash.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 bollard.workspace = true
+ferropost-app.workspace = true
 ferropost-common.workspace = true
 ferropost-domain.workspace = true
 ferropost-sender.workspace = true

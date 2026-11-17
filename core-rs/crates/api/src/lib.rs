@@ -6,55 +6,39 @@
 //! Roundcube through PHP-FPM ([`webmail`]). Only Go's API documentation
 //! still goes to the Go core ([`proxy::forward`]) while it runs.
 
-pub mod access_log;
 pub mod acme;
 pub mod api_mail;
 pub mod askai;
-pub mod audit;
-pub mod auth;
-pub mod base_url;
 pub mod blocklist;
-pub mod body;
 pub mod bootstrap;
 pub mod campaigns;
 pub mod captcha;
 pub mod certs;
-pub mod conn;
-pub mod de;
 pub mod dkim;
-pub mod dns;
-pub mod docker;
 pub mod domains;
-pub mod edge;
-pub mod envelope;
 pub mod export;
 pub mod fastcgi;
-pub mod fsio;
-pub mod lang;
 pub mod mail_tls;
 pub mod mailbox_jobs;
-pub mod maildir;
 pub mod multi_ip;
-pub mod postfix;
-pub mod postfix_queue;
-pub mod proxy;
-pub mod rbac;
 pub mod relay;
 pub mod routes;
-pub mod rspamd;
 pub mod service_config;
-pub mod state;
 pub mod static_files;
-pub mod system_mail;
 pub mod templates;
-pub mod validate;
 pub mod webmail;
+
+// The shared HTTP layer, under the names this crate's modules and the
+// tests use.
+pub use ferropost_app::{
+    access_log, audit, auth, base_url, body, conn, de, dns, docker, edge, envelope, fsio, lang,
+    maildir, postfix, postfix_queue, proxy, rbac, rspamd, state, system_mail, validate,
+};
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
 
-pub use conn::{ClientIp, ConnInfo};
-pub use state::AppState;
+pub use ferropost_app::{AppState, ClientIp, ConnInfo};
 
 /// Builds the complete application.
 pub fn app(state: AppState) -> Router {

@@ -90,7 +90,7 @@ async fn noreply_password(state: &AppState, address: &str, domain: &str) -> Resu
             &hash,
             &encoded,
             5_242_880,
-            crate::routes::now(),
+            crate::now(),
         ),
     )
     .await?;

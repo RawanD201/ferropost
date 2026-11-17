@@ -16,6 +16,14 @@ use crate::access_log::AccessLog;
 use crate::auth::JwtVerifier;
 use crate::proxy::Upstream;
 
+/// A relay's last connection check, as the console shows it (cached here,
+/// made by the relay routes).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RelayStatus {
+    pub status: bool,
+    pub msg: String,
+}
+
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
 
@@ -58,7 +66,7 @@ pub struct Caches {
     /// Host directory of `docker-compose.yml`.
     pub compose_dir: Cache<(), Option<String>>,
     /// Last connection check per relay.
-    pub relay_status: Cache<i64, crate::relay::Status>,
+    pub relay_status: Cache<i64, RelayStatus>,
     /// Published SPF record per domain (`None`: none found).
     pub spf_records: Cache<String, Option<String>>,
     /// HTTP-01 key authorizations by token, while an order is validated.

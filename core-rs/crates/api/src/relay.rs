@@ -17,7 +17,6 @@ use anyhow::{Result, anyhow, bail};
 use ferropost_domain::relay::{self as rules, Login, Relay};
 use ferropost_store::relay::{self as store, RelayRow};
 use futures_util::StreamExt;
-use serde::Serialize;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -33,12 +32,7 @@ const CHECKS_AT_ONCE: usize = 5;
 /// One sync at a time: it rewrites shared files.
 static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// A relay's last connection check, as the console shows it.
-#[derive(Debug, Clone, Serialize)]
-pub struct Status {
-    pub status: bool,
-    pub msg: String,
-}
+pub use crate::state::RelayStatus as Status;
 
 // ---- passwords -----------------------------------------------------------------
 

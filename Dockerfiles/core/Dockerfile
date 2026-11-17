@@ -26,6 +26,13 @@ RUN pnpm install --frozen-lockfile
 COPY core/frontend/ ./
 RUN pnpm build
 
+# --- The crates' manifests -----------------------------------------------------------------
+# Only every crate's Cargo.toml, whatever crates there are: the dependency
+# layer below is reused until one of them changes.
+FROM ${RUNTIME_IMAGE} AS manifests
+COPY core-rs/crates /crates
+RUN find /crates -type f ! -name Cargo.toml -delete && find /crates -type d -empty -delete
+
 # --- The Rust core --------------------------------------------------------------------------
 FROM ${RUST_IMAGE} AS core
 RUN apk add --no-cache musl-dev
@@ -34,13 +41,7 @@ WORKDIR /src/core-rs
 # until Cargo.lock or a manifest changes, so a code change compiles only
 # Ferropost's own crates.
 COPY core-rs/Cargo.toml core-rs/Cargo.lock ./
-COPY core-rs/crates/api/Cargo.toml crates/api/
-COPY core-rs/crates/common/Cargo.toml crates/common/
-COPY core-rs/crates/domain/Cargo.toml crates/domain/
-COPY core-rs/crates/jobs/Cargo.toml crates/jobs/
-COPY core-rs/crates/sender/Cargo.toml crates/sender/
-COPY core-rs/crates/server/Cargo.toml crates/server/
-COPY core-rs/crates/store/Cargo.toml crates/store/
+COPY --from=manifests /crates crates
 RUN for crate in crates/*/; do mkdir -p "${crate}src" && touch "${crate}src/lib.rs"; done \
     && echo 'fn main() {}' > crates/server/src/main.rs \
     && cargo build --release --locked --bin ferropost \

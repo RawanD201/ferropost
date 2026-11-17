@@ -10,6 +10,7 @@ license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
+ferropost-app = { path = "crates/app" }
 ferropost-common = { path = "crates/common" }
 ferropost-domain = { path = "crates/domain" }
 ferropost-store = { path = "crates/store" }
